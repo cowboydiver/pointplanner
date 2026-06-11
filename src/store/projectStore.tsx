@@ -29,6 +29,8 @@ type Action =
   | { type: 'DO_ACTION'; id: string; act: 'start' | 'done' | 'reopen' }
   | { type: 'SET_HIGHLIGHT_LINE'; lineId: string | null }
   | { type: 'CREATE_TASK'; data: CreateTaskData }
+  | { type: 'DELETE_TASK'; id: string }
+  | { type: 'DELETE_LINE'; id: string }
   | { type: 'SET_THEME'; theme: 'light' | 'dark' }
   | { type: 'OPEN_MODAL'; preset?: { line?: string; prereqs?: string[] } }
   | { type: 'CLOSE_MODAL' };
@@ -76,6 +78,30 @@ function saveState(state: PersistedState): void {
   } catch {
     // ignore
   }
+}
+
+function spliceStation(stationId: string, edges: Edge[], stations: Station[]): Edge[] {
+  const stationMap = new Map(stations.map(s => [s.id, s]));
+  const incoming = edges.filter(e => e.to === stationId);
+  const outgoing = edges.filter(e => e.from === stationId);
+  const unrelated = edges.filter(e => e.from !== stationId && e.to !== stationId);
+
+  const spliced: Edge[] = [];
+  for (const inc of incoming) {
+    for (const out of outgoing) {
+      const fromSt = stationMap.get(inc.from);
+      const toSt = stationMap.get(out.to);
+      spliced.push({ from: inc.from, to: out.to, line: out.line, df: fromSt && toSt ? fromSt.row !== toSt.row : false });
+    }
+  }
+
+  const seen = new Set<string>();
+  return [...unrelated, ...spliced].filter(e => {
+    const key = `${e.from}|${e.to}|${e.line}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 function reducer(state: StoreState, action: Action): StoreState {
@@ -140,6 +166,42 @@ function reducer(state: StoreState, action: Action): StoreState {
         modalOpen: false,
         modalOpenCount: state.modalOpenCount,
         modalPreset: null,
+      };
+    }
+
+    case 'DELETE_TASK': {
+      const newEdges = spliceStation(action.id, state.edges, state.stations);
+      const newStations = state.stations.filter(s => s.id !== action.id);
+      const idx = buildIndexes(newStations, state.lines, newEdges);
+      return {
+        ...state,
+        stations: recompute(newStations, idx.prereqs),
+        edges: newEdges,
+        selectedId: state.selectedId === action.id ? null : state.selectedId,
+      };
+    }
+
+    case 'DELETE_LINE': {
+      const exclusiveIds = new Set(
+        state.stations
+          .filter(s => s.lines.length === 1 && s.lines[0] === action.id)
+          .map(s => s.id)
+      );
+      const newEdges = state.edges.filter(e =>
+        e.line !== action.id && !exclusiveIds.has(e.from) && !exclusiveIds.has(e.to)
+      );
+      const newStations = state.stations
+        .filter(s => !exclusiveIds.has(s.id))
+        .map(s => s.lines.includes(action.id) ? { ...s, lines: s.lines.filter(l => l !== action.id) } : s);
+      const newLines = state.lines.filter(l => l.id !== action.id);
+      const idx = buildIndexes(newStations, newLines, newEdges);
+      return {
+        ...state,
+        lines: newLines,
+        stations: recompute(newStations, idx.prereqs),
+        edges: newEdges,
+        selectedId: exclusiveIds.has(state.selectedId ?? '') ? null : state.selectedId,
+        highlightLine: state.highlightLine === action.id ? null : state.highlightLine,
       };
     }
 

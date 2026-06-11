@@ -1,8 +1,11 @@
+import { useState } from 'react';
 import { useStore } from '../store/projectStore';
+import { ConfirmDialog } from './ConfirmDialog';
 
 export function Legend() {
   const { state, dispatch } = useStore();
   const { stations, lines, project, highlightLine } = state;
+  const [pendingDeleteLine, setPendingDeleteLine] = useState<string | null>(null);
 
   const total = stations.length;
   const done = stations.filter(s => s.status === 'done').length;
@@ -53,25 +56,59 @@ export function Legend() {
           const isOn = highlightLine === l.id;
 
           return (
-            <button
+            <div
               key={l.id}
               className={`line-row${isOn ? ' on' : ''}`}
               style={{ '--lc': l.color } as React.CSSProperties}
-              onClick={() => toggleHighlight(l.id)}
-              type="button"
             >
-              <span className="line-swatch" />
-              <span className="line-meta">
-                <span className="line-name">{l.name}</span>
-                <span className="line-sub">{lineStations.length} stops · {lineDone} done</span>
-              </span>
-              <span className="line-prog">
-                <span className="line-prog-fill" style={{ width: `${linePct}%` }} />
-              </span>
-            </button>
+              <button
+                className="line-row-btn"
+                type="button"
+                onClick={() => toggleHighlight(l.id)}
+              >
+                <span className="line-swatch" />
+                <span className="line-meta">
+                  <span className="line-name">{l.name}</span>
+                  <span className="line-sub">{lineStations.length} stops · {lineDone} done</span>
+                </span>
+                <span className="line-prog">
+                  <span className="line-prog-fill" style={{ width: `${linePct}%` }} />
+                </span>
+              </button>
+              <button
+                className="line-delete"
+                type="button"
+                aria-label={`Delete ${l.name}`}
+                onClick={() => setPendingDeleteLine(l.id)}
+              >
+                ✕
+              </button>
+            </div>
           );
         })}
       </div>
+
+      {pendingDeleteLine && (() => {
+        const dl = lines.find(l => l.id === pendingDeleteLine);
+        const exclusiveCount = stations.filter(s => s.lines.length === 1 && s.lines[0] === pendingDeleteLine).length;
+        const edgeCount = state.edges.filter(e => e.line === pendingDeleteLine).length;
+        return (
+          <ConfirmDialog
+            isOpen
+            title={`Delete "${dl?.name}"?`}
+            message={
+              <>
+                This will permanently delete the line
+                {exclusiveCount > 0 && <>, <strong>{exclusiveCount} task{exclusiveCount !== 1 ? 's' : ''}</strong> that only belong to it</>}
+                {edgeCount > 0 && <>, and <strong>{edgeCount} connection{edgeCount !== 1 ? 's' : ''}</strong></>}.
+              </>
+            }
+            confirmLabel="Delete line"
+            onConfirm={() => { dispatch({ type: 'DELETE_LINE', id: pendingDeleteLine }); setPendingDeleteLine(null); }}
+            onCancel={() => setPendingDeleteLine(null)}
+          />
+        );
+      })()}
 
       <div className="sec-h">Key</div>
       <div className="key">

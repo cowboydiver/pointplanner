@@ -1,4 +1,6 @@
+import { useState } from 'react';
 import { useStore } from '../store/projectStore';
+import { ConfirmDialog } from './ConfirmDialog';
 
 const STATUS_LABEL: Record<string, string> = {
   locked: 'Locked',
@@ -11,6 +13,7 @@ export function DetailPanel() {
   const { state, indexes, dispatch } = useStore();
   const { selectedId } = state;
   const { stationById, lineById, prereqs, dependents } = indexes;
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   const isOpen = selectedId !== null;
   const station = selectedId ? stationById[selectedId] : null;
@@ -174,8 +177,19 @@ export function DetailPanel() {
           >
             + Add a following task
           </button>
+          <button className="act danger" type="button" onClick={() => setConfirmDelete(true)}>
+            Delete task
+          </button>
         </div>
       </div>
+      <ConfirmDialog
+        isOpen={confirmDelete}
+        title="Delete task?"
+        message="This task and all its connections will be removed. Predecessor tasks will be linked directly to successor tasks."
+        confirmLabel="Delete task"
+        onConfirm={() => { dispatch({ type: 'DELETE_TASK', id: station.id }); setConfirmDelete(false); }}
+        onCancel={() => setConfirmDelete(false)}
+      />
     </aside>
   );
 }
