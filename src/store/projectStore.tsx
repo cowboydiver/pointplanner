@@ -1,11 +1,13 @@
 import React, { createContext, useContext, useReducer, useMemo, useEffect } from 'react';
 import type { Project, Line, Station, Edge } from '../types';
-import { PROJECT as SEED_PROJECT, LINES as SEED_LINES, STATIONS as SEED_STATIONS, EDGES as SEED_EDGES } from '../data/seed';
 import { buildIndexes, type Indexes } from '../lib/indexes';
 import { recompute } from '../lib/dependencies';
 import { slugify, placeNewStation } from '../lib/placement';
+import { createSeedMapData } from '../lib/maps';
 
-const STORAGE_KEY = 'pointplanner.v1';
+function mapKey(mapId: string): string {
+  return 'pointplanner.map.' + mapId;
+}
 
 interface PersistedState {
   project: Project;
@@ -47,9 +49,9 @@ export interface CreateTaskData {
   tags?: string[];
 }
 
-function loadState(): PersistedState {
+function loadState(mapId: string): PersistedState {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = localStorage.getItem(mapKey(mapId));
     if (raw) {
       const parsed = JSON.parse(raw) as PersistedState;
       if (parsed.project && parsed.lines && parsed.stations && parsed.edges) {
@@ -59,17 +61,14 @@ function loadState(): PersistedState {
   } catch {
     // ignore
   }
-  return {
-    project: SEED_PROJECT,
-    lines: SEED_LINES,
-    stations: JSON.parse(JSON.stringify(SEED_STATIONS)) as Station[],
-    edges: JSON.parse(JSON.stringify(SEED_EDGES)) as Edge[],
-  };
+  // Defensive fallback: registry should have written the key before mount,
+  // but if it's missing, start from seed data.
+  return createSeedMapData();
 }
 
-function saveState(state: PersistedState): void {
+function saveState(mapId: string, state: PersistedState): void {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({
+    localStorage.setItem(mapKey(mapId), JSON.stringify({
       project: state.project,
       lines: state.lines,
       stations: state.stations,
@@ -227,8 +226,8 @@ interface StoreContextValue {
 
 const StoreContext = createContext<StoreContextValue | null>(null);
 
-export function ProjectStoreProvider({ children }: { children: React.ReactNode }) {
-  const persisted = loadState();
+export function ProjectStoreProvider({ children, mapId }: { children: React.ReactNode; mapId: string }) {
+  const persisted = loadState(mapId);
   const initialState: StoreState = {
     ...persisted,
     selectedId: null,
@@ -246,15 +245,15 @@ export function ProjectStoreProvider({ children }: { children: React.ReactNode }
     [state.stations, state.lines, state.edges]
   );
 
-  // Persist on data changes
+  // Persist on data changes (also depends on mapId so switching maps re-saves correctly)
   useEffect(() => {
-    saveState({
+    saveState(mapId, {
       project: state.project,
       lines: state.lines,
       stations: state.stations,
       edges: state.edges,
     });
-  }, [state.project, state.lines, state.stations, state.edges]);
+  }, [mapId, state.project, state.lines, state.stations, state.edges]);
 
   // Apply theme to body
   useEffect(() => {

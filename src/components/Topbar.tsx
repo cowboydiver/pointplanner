@@ -1,4 +1,5 @@
 import { useStore } from '../store/projectStore';
+import { MapSwitcher } from './MapSwitcher';
 
 export function Topbar() {
   const { state, dispatch } = useStore();
@@ -9,7 +10,7 @@ export function Topbar() {
         <span className="roundel" />
         PointPlanner
       </div>
-      <span className="pill">{state.project.name}</span>
+      <MapSwitcher />
       <div className="spacer" />
       <button className="tb-btn" type="button">
         Board view

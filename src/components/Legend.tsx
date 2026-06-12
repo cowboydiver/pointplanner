@@ -1,10 +1,14 @@
 import { useState } from 'react';
 import { useStore } from '../store/projectStore';
+import { useMapRegistry } from '../store/mapRegistry';
 import { ConfirmDialog } from './ConfirmDialog';
 
 export function Legend() {
   const { state, dispatch } = useStore();
+  const { activeMeta } = useMapRegistry();
   const { stations, lines, project, highlightLine } = state;
+  // Use registry name as the canonical display name; fall back to store name if missing
+  const displayName = activeMeta?.name ?? project.name;
   const [pendingDeleteLine, setPendingDeleteLine] = useState<string | null>(null);
 
   const total = stations.length;
@@ -21,7 +25,7 @@ export function Legend() {
   return (
     <aside className="legend">
       <div className="prj">
-        <div className="prj-name">{project.name}</div>
+        <div className="prj-name">{displayName}</div>
         <div className="prj-sub">{project.subtitle}</div>
       </div>
 

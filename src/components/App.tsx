@@ -1,10 +1,12 @@
 import { useEffect } from 'react';
 import { ProjectStoreProvider, useStore } from '../store/projectStore';
+import { MapRegistryProvider, useMapRegistry } from '../store/mapRegistry';
 import { Topbar } from './Topbar';
 import { Legend } from './Legend';
 import { TransitMap } from './TransitMap';
 import { DetailPanel } from './DetailPanel';
 import { CreateModal } from './CreateModal';
+import { EmptyState } from './EmptyState';
 
 function AppInner() {
   const { state, dispatch } = useStore();
@@ -39,10 +41,24 @@ function AppInner() {
   );
 }
 
-export function App() {
+function AppRoot() {
+  const { index } = useMapRegistry();
+
+  if (index.activeMapId === null) {
+    return <EmptyState />;
+  }
+
   return (
-    <ProjectStoreProvider>
+    <ProjectStoreProvider key={index.activeMapId} mapId={index.activeMapId}>
       <AppInner />
     </ProjectStoreProvider>
+  );
+}
+
+export function App() {
+  return (
+    <MapRegistryProvider>
+      <AppRoot />
+    </MapRegistryProvider>
   );
 }
