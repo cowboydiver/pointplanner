@@ -51,3 +51,17 @@ Grid constants (do not change without updating tests): `PAD_X=96, COL=152, PAD_Y
 ### Design reference
 
 `design/project/` contains the original Claude Design handoff (PointPlanner.html, app.js, data.js, screenshots). It is the source of truth for visual behavior. The `tweaks.jsx` / `tweaks-panel.jsx` files in that directory are Claude Design's own editing harness — they are excluded from the product.
+
+## Agent skills
+
+### Issue tracker
+
+Issues live in GitHub Issues on `cowboydiver/pointplanner`. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Default label vocabulary (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`). See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context repo — one `CONTEXT.md` + `docs/adr/` at the repo root. See `docs/agents/domain.md`.
