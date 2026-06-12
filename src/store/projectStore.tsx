@@ -23,6 +23,8 @@ interface StoreState extends PersistedState {
   theme: 'light' | 'dark';
   modalOpen: boolean;
   modalOpenCount: number;
+  modalMode: 'create' | 'edit';
+  editId: string | null;
   modalPreset: { line?: string; prereqs?: string[] } | null;
 }
 
@@ -32,12 +34,14 @@ type Action =
   | { type: 'DO_ACTION'; id: string; act: 'start' | 'done' | 'reopen' }
   | { type: 'SET_HIGHLIGHT_LINE'; lineId: string | null }
   | { type: 'CREATE_TASK'; data: CreateTaskData }
+  | { type: 'UPDATE_TASK'; id: string; data: EditTaskData }
   | { type: 'DELETE_TASK'; id: string }
   | { type: 'CREATE_LINE'; data: LineData }
   | { type: 'UPDATE_LINE'; id: string; data: LineData }
   | { type: 'DELETE_LINE'; id: string }
   | { type: 'SET_THEME'; theme: 'light' | 'dark' }
   | { type: 'OPEN_MODAL'; preset?: { line?: string; prereqs?: string[] } }
+  | { type: 'OPEN_EDIT_MODAL'; id: string }
   | { type: 'CLOSE_MODAL' };
 
 export interface LineData {
@@ -50,6 +54,21 @@ export interface CreateTaskData {
   name: string;
   line: string;
   // When set, a new line is created as part of this task and used as its line.
+  newLine?: LineData;
+  desc?: string;
+  owner?: string;
+  role?: string;
+  due?: string;
+  est?: string;
+  prereqs: string[];
+  tags?: string[];
+}
+
+export interface EditTaskData {
+  name: string;
+  // Full set of lines this task should sit on (interchange = more than one).
+  lines: string[];
+  // When set, a new line is created as part of this edit and added to `lines`.
   newLine?: LineData;
   desc?: string;
   owner?: string;
@@ -114,7 +133,10 @@ function spliceStation(stationId: string, edges: Edge[], stations: Station[]): E
   });
 }
 
-function reducer(state: StoreState, action: Action): StoreState {
+export type { StoreState, Action };
+
+// eslint-disable-next-line react-refresh/only-export-components
+export function reducer(state: StoreState, action: Action): StoreState {
   switch (action.type) {
     case 'OPEN_DETAIL':
       return { ...state, selectedId: action.id };
@@ -193,6 +215,78 @@ function reducer(state: StoreState, action: Action): StoreState {
       };
     }
 
+    case 'UPDATE_TASK': {
+      const { id, data } = action;
+      const existing = state.stations.find(s => s.id === id);
+      if (!existing) return state;
+
+      // Optionally create a new line as part of this edit and add it to the task.
+      let lines = state.lines;
+      let selectedLines = [...data.lines];
+      if (data.newLine && data.newLine.name.trim()) {
+        const newId = lineIdFromName(data.newLine.name, lines.map(l => l.id));
+        lines = [...lines, {
+          id: newId,
+          name: data.newLine.name.trim(),
+          color: data.newLine.color,
+          short: normalizeShort(data.newLine.short, data.newLine.name),
+        }];
+        selectedLines = [...selectedLines, newId];
+      }
+      // A station must sit on at least one line; fall back to its current lines.
+      if (selectedLines.length === 0) selectedLines = existing.lines;
+      const primaryLine = selectedLines[0];
+
+      // Auto re-place to the right of its (possibly new) prerequisites. Exclude
+      // self from the occupancy check so it can reclaim its own cell.
+      const idx = buildIndexes(state.stations, lines, state.edges);
+      const others = state.stations.filter(s => s.id !== id);
+      const pos = placeNewStation(primaryLine, data.prereqs, idx.stationById, others);
+
+      const updatedStation: Station = {
+        ...existing,
+        name: data.name,
+        lines: selectedLines,
+        col: pos.col,
+        row: pos.row,
+        lp: pos.row >= 3 ? 'bottom' : 'top',
+        desc: data.desc?.trim() || 'No description yet.',
+        owner: data.owner?.trim() || 'Unassigned',
+        role: data.role?.trim() || '',
+        due: data.due?.trim() || '—',
+        est: data.est?.trim() || '—',
+        tags: data.tags || [],
+      };
+      const newStations = state.stations.map(s => (s.id === id ? updatedStation : s));
+      const stById = new Map(newStations.map(s => [s.id, s]));
+
+      // Rewire prerequisites: drop the task's incoming edges, rebuild from the
+      // new prereq list (colored by the task's primary line).
+      const keptEdges = state.edges.filter(e => e.to !== id);
+      const newIncoming: Edge[] = data.prereqs.map(pid => ({ from: pid, to: id, line: primaryLine }));
+      // Recompute the diagonal-first flag for every edge touching the moved task.
+      const newEdges: Edge[] = [...keptEdges, ...newIncoming].map(e => {
+        if (e.from !== id && e.to !== id) return e;
+        const a = stById.get(e.from);
+        const b = stById.get(e.to);
+        return { ...e, df: a && b ? a.row !== b.row : false };
+      });
+
+      const idx2 = buildIndexes(newStations, lines, newEdges);
+      const recomputed = recompute(newStations, idx2.prereqs);
+      return {
+        ...state,
+        lines,
+        stations: recomputed,
+        edges: newEdges,
+        selectedId: id,
+        modalOpen: false,
+        modalMode: 'create',
+        editId: null,
+        modalPreset: null,
+      };
+    }
+
     case 'CREATE_LINE': {
       const id = lineIdFromName(action.data.name, state.lines.map(l => l.id));
       const newLine: Line = {
@@ -252,10 +346,13 @@ function reducer(state: StoreState, action: Action): StoreState {
       return { ...state, theme: action.theme };
 
     case 'OPEN_MODAL':
-      return { ...state, modalOpen: true, modalOpenCount: state.modalOpenCount + 1, modalPreset: action.preset || null };
+      return { ...state, modalOpen: true, modalOpenCount: state.modalOpenCount + 1, modalMode: 'create', editId: null, modalPreset: action.preset || null };
+
+    case 'OPEN_EDIT_MODAL':
+      return { ...state, modalOpen: true, modalOpenCount: state.modalOpenCount + 1, modalMode: 'edit', editId: action.id, modalPreset: null };
 
     case 'CLOSE_MODAL':
-      return { ...state, modalOpen: false, modalPreset: null };
+      return { ...state, modalOpen: false, modalMode: 'create', editId: null, modalPreset: null };
 
     default:
       return state;
@@ -279,6 +376,8 @@ export function ProjectStoreProvider({ children, mapId }: { children: React.Reac
     theme: 'light',
     modalOpen: false,
     modalOpenCount: 0,
+    modalMode: 'create',
+    editId: null,
     modalPreset: null,
   };
 
