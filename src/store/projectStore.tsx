@@ -3,6 +3,7 @@ import type { Project, Line, Station, Edge } from '../types';
 import { buildIndexes, type Indexes } from '../lib/indexes';
 import { recompute } from '../lib/dependencies';
 import { slugify, placeNewStation } from '../lib/placement';
+import { lineIdFromName, normalizeShort } from '../lib/lines';
 import { createSeedMapData } from '../lib/maps';
 
 function mapKey(mapId: string): string {
@@ -32,14 +33,24 @@ type Action =
   | { type: 'SET_HIGHLIGHT_LINE'; lineId: string | null }
   | { type: 'CREATE_TASK'; data: CreateTaskData }
   | { type: 'DELETE_TASK'; id: string }
+  | { type: 'CREATE_LINE'; data: LineData }
+  | { type: 'UPDATE_LINE'; id: string; data: LineData }
   | { type: 'DELETE_LINE'; id: string }
   | { type: 'SET_THEME'; theme: 'light' | 'dark' }
   | { type: 'OPEN_MODAL'; preset?: { line?: string; prereqs?: string[] } }
   | { type: 'CLOSE_MODAL' };
 
+export interface LineData {
+  name: string;
+  color: string;
+  short: string;
+}
+
 export interface CreateTaskData {
   name: string;
   line: string;
+  // When set, a new line is created as part of this task and used as its line.
+  newLine?: LineData;
   desc?: string;
   owner?: string;
   role?: string;
@@ -129,13 +140,26 @@ function reducer(state: StoreState, action: Action): StoreState {
 
     case 'CREATE_TASK': {
       const { data } = action;
-      const idx = buildIndexes(state.stations, state.lines, state.edges);
-      const pos = placeNewStation(data.line, data.prereqs, idx.stationById, state.stations);
+      // Optionally create the line this task lives on, in the same atomic action.
+      let lines = state.lines;
+      let lineId = data.line;
+      if (data.newLine && data.newLine.name.trim()) {
+        const id = lineIdFromName(data.newLine.name, lines.map(l => l.id));
+        lines = [...lines, {
+          id,
+          name: data.newLine.name.trim(),
+          color: data.newLine.color,
+          short: normalizeShort(data.newLine.short, data.newLine.name),
+        }];
+        lineId = id;
+      }
+      const idx = buildIndexes(state.stations, lines, state.edges);
+      const pos = placeNewStation(lineId, data.prereqs, idx.stationById, state.stations);
       const id = slugify(data.name, idx.stationById);
       const newStation: Station = {
         id,
         name: data.name,
-        lines: [data.line],
+        lines: [lineId],
         col: pos.col,
         row: pos.row,
         lp: pos.row >= 3 ? 'bottom' : 'top',
@@ -150,15 +174,16 @@ function reducer(state: StoreState, action: Action): StoreState {
       const newEdges: Edge[] = data.prereqs.map(pid => ({
         from: pid,
         to: id,
-        line: data.line,
+        line: lineId,
         df: idx.stationById[pid]?.row !== pos.row,
       }));
       const newStations = [...state.stations, newStation];
       const newEdgesAll = [...state.edges, ...newEdges];
-      const idx2 = buildIndexes(newStations, state.lines, newEdgesAll);
+      const idx2 = buildIndexes(newStations, lines, newEdgesAll);
       const recomputed = recompute(newStations, idx2.prereqs);
       return {
         ...state,
+        lines,
         stations: recomputed,
         edges: newEdgesAll,
         selectedId: id,
@@ -166,6 +191,25 @@ function reducer(state: StoreState, action: Action): StoreState {
         modalOpenCount: state.modalOpenCount,
         modalPreset: null,
       };
+    }
+
+    case 'CREATE_LINE': {
+      const id = lineIdFromName(action.data.name, state.lines.map(l => l.id));
+      const newLine: Line = {
+        id,
+        name: action.data.name.trim(),
+        color: action.data.color,
+        short: normalizeShort(action.data.short, action.data.name),
+      };
+      return { ...state, lines: [...state.lines, newLine] };
+    }
+
+    case 'UPDATE_LINE': {
+      // id is stable; only the display fields change, so edges/stations are untouched.
+      const lines = state.lines.map(l => l.id === action.id
+        ? { ...l, name: action.data.name.trim(), color: action.data.color, short: normalizeShort(action.data.short, action.data.name) }
+        : l);
+      return { ...state, lines };
     }
 
     case 'DELETE_TASK': {

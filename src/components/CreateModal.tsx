@@ -1,16 +1,16 @@
 import { useRef, useState, useEffect, useCallback } from 'react';
 import { useStore } from '../store/projectStore';
+import type { CreateTaskData } from '../store/projectStore';
 import type { Line, Station } from '../types';
+
+const NEW_LINE = '__new__';
+const DEFAULT_NEW_LINE_COLOR = '#7A4DD0';
 
 interface FormProps {
   defaultLine: string;
   defaultPrereqs: string[];
   onClose: () => void;
-  onSubmit: (data: {
-    name: string; line: string; desc: string;
-    owner: string; role: string; due: string; est: string;
-    prereqs: string[];
-  }) => void;
+  onSubmit: (data: CreateTaskData) => void;
   stations: Station[];
   lines: Line[];
   lineById: Record<string, Line>;
@@ -20,6 +20,9 @@ function ModalForm({ defaultLine, defaultPrereqs, onClose, onSubmit, stations, l
   const [nameErr, setNameErr] = useState(false);
   const [selectedLine, setSelectedLine] = useState(defaultLine);
   const [selectedPrereqs, setSelectedPrereqs] = useState<string[]>(defaultPrereqs);
+  const [newLineName, setNewLineName] = useState('');
+  const [newLineColor, setNewLineColor] = useState(DEFAULT_NEW_LINE_COLOR);
+  const [newLineErr, setNewLineErr] = useState(false);
 
   const nameRef = useRef<HTMLInputElement>(null);
   const descRef = useRef<HTMLTextAreaElement>(null);
@@ -39,6 +42,8 @@ function ModalForm({ defaultLine, defaultPrereqs, onClose, onSubmit, stations, l
     );
   }, []);
 
+  const creatingNewLine = selectedLine === NEW_LINE;
+
   const handleSubmit = useCallback(() => {
     const name = nameRef.current?.value.trim() ?? '';
     if (!name) {
@@ -46,10 +51,18 @@ function ModalForm({ defaultLine, defaultPrereqs, onClose, onSubmit, stations, l
       nameRef.current?.focus();
       return;
     }
+    if (creatingNewLine && !newLineName.trim()) {
+      setNewLineErr(true);
+      return;
+    }
     setNameErr(false);
+    setNewLineErr(false);
     onSubmit({
       name,
-      line: selectedLine,
+      line: creatingNewLine ? '' : selectedLine,
+      newLine: creatingNewLine
+        ? { name: newLineName.trim(), color: newLineColor, short: '' }
+        : undefined,
       desc: descRef.current?.value.trim() || '',
       owner: ownerRef.current?.value.trim() || '',
       role: roleRef.current?.value.trim() || '',
@@ -57,7 +70,7 @@ function ModalForm({ defaultLine, defaultPrereqs, onClose, onSubmit, stations, l
       est: estRef.current?.value.trim() || '',
       prereqs: selectedPrereqs,
     });
-  }, [selectedLine, selectedPrereqs, onSubmit]);
+  }, [selectedLine, selectedPrereqs, creatingNewLine, newLineName, newLineColor, onSubmit]);
 
   const handleNameKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (e.key === 'Enter') {
@@ -95,8 +108,33 @@ function ModalForm({ defaultLine, defaultPrereqs, onClose, onSubmit, stations, l
           {lines.map(l => (
             <option key={l.id} value={l.id}>{l.name}</option>
           ))}
+          <option value={NEW_LINE}>+ New line…</option>
         </select>
       </label>
+
+      {creatingNewLine && (
+        <div className="field-row new-line-fields">
+          <label className="new-line-name">
+            New line name
+            <input
+              type="text"
+              className={newLineErr ? 'err' : ''}
+              placeholder="e.g. Marketing Line"
+              autoComplete="off"
+              value={newLineName}
+              onChange={e => { setNewLineName(e.target.value); if (newLineErr) setNewLineErr(false); }}
+            />
+          </label>
+          <label className="new-line-color">
+            Color
+            <input
+              type="color"
+              value={newLineColor}
+              onChange={e => setNewLineColor(e.target.value)}
+            />
+          </label>
+        </div>
+      )}
 
       <label>
         Description
@@ -186,11 +224,7 @@ export function CreateModal() {
     if (e.target === e.currentTarget) close();
   }, [close]);
 
-  const handleSubmit = useCallback((data: {
-    name: string; line: string; desc: string;
-    owner: string; role: string; due: string; est: string;
-    prereqs: string[];
-  }) => {
+  const handleSubmit = useCallback((data: CreateTaskData) => {
     dispatch({ type: 'CREATE_TASK', data });
   }, [dispatch]);
 
