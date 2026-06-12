@@ -1,12 +1,18 @@
 import { describe, it, expect } from 'vitest';
-import { routePoints, pointsToPath, px, py, PAD_X, PAD_Y, COL, ROW } from './routing';
-import type { Station } from '../types';
+import { routePoints, pointsToPath, resolveRouting, px, py, PAD_X, PAD_Y, COL, ROW } from './routing';
+import type { Station, Edge } from '../types';
 
 function makeStation(id: string, col: number, row: number): Station {
   return {
     id, name: id, lines: ['design'], col, row, lp: 'top',
     status: 'locked', desc: '', owner: '', role: '', due: '', est: '', tags: [],
   };
+}
+
+function byId(...stations: Station[]): Record<string, Station> {
+  const m: Record<string, Station> = {};
+  stations.forEach(s => { m[s.id] = s; });
+  return m;
 }
 
 describe('px / py helpers', () => {
@@ -109,5 +115,55 @@ describe('pointsToPath', () => {
   it('zero radius → straight lines only (no Q)', () => {
     const d = pointsToPath([[0, 0], [100, 0], [100, 100]], 0);
     expect(d).not.toContain('Q');
+  });
+});
+
+describe('resolveRouting — derives df from geometry + graph shape', () => {
+  it('same-row edge is straight (df=false) regardless of stored flag', () => {
+    const a = makeStation('a', 0, 0);
+    const b = makeStation('b', 2, 0);
+    const edges: Edge[] = [{ from: 'a', to: 'b', line: 'design', df: true }];
+    expect(resolveRouting(edges, byId(a, b))[0].df).toBe(false);
+  });
+
+  it('simple chain link with a row change stays diagonal-first', () => {
+    const a = makeStation('a', 0, 0);
+    const b = makeStation('b', 2, 1);
+    const edges: Edge[] = [{ from: 'a', to: 'b', line: 'design' }];
+    expect(resolveRouting(edges, byId(a, b))[0].df).toBe(true);
+  });
+
+  it('edges converging into a merge become straight-first (fan-in)', () => {
+    // a and b (different rows) both feed c -> c is a merge
+    const a = makeStation('a', 0, 0);
+    const b = makeStation('b', 0, 2);
+    const c = makeStation('c', 3, 1);
+    const edges: Edge[] = [
+      { from: 'a', to: 'c', line: 'design', df: true },
+      { from: 'b', to: 'c', line: 'design', df: true },
+    ];
+    const out = resolveRouting(edges, byId(a, b, c));
+    expect(out.every(e => e.df === false)).toBe(true);
+  });
+
+  it('edges branching out of one source stay diagonal-first (fan-out)', () => {
+    // a feeds both b and c on different rows -> a is a branch
+    const a = makeStation('a', 0, 1);
+    const b = makeStation('b', 2, 0);
+    const c = makeStation('c', 2, 2);
+    const edges: Edge[] = [
+      { from: 'a', to: 'b', line: 'design' },
+      { from: 'a', to: 'c', line: 'design' },
+    ];
+    const out = resolveRouting(edges, byId(a, b, c));
+    expect(out.every(e => e.df === true)).toBe(true);
+  });
+
+  it('does not mutate the input edges', () => {
+    const a = makeStation('a', 0, 0);
+    const b = makeStation('b', 2, 0);
+    const edges: Edge[] = [{ from: 'a', to: 'b', line: 'design', df: true }];
+    resolveRouting(edges, byId(a, b));
+    expect(edges[0].df).toBe(true);
   });
 });

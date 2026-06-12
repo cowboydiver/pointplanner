@@ -1,6 +1,7 @@
 import { useMemo, useCallback } from 'react';
 import { useStore } from '../store/projectStore';
 import { computeBounds } from '../lib/bounds';
+import { resolveRouting } from '../lib/routing';
 import { Segment } from './Segment';
 import { StationNode } from './StationNode';
 
@@ -11,6 +12,11 @@ export function TransitMap() {
 
   const bounds = useMemo(() => computeBounds(stations), [stations]);
   const minWidth = Math.max(980, Math.round(bounds.vw * 0.62));
+
+  // Routing (df) is derived from current positions + graph shape so edges stay
+  // clean after re-placement or dependency changes, rather than trusting the
+  // creation-time flag stored on each edge.
+  const routedEdges = useMemo(() => resolveRouting(edges, stationById), [edges, stationById]);
 
   const handleSelect = useCallback((id: string) => {
     dispatch({ type: 'OPEN_DETAIL', id });
@@ -30,7 +36,7 @@ export function TransitMap() {
         className={highlightLine ? 'has-highlight' : ''}
       >
         <g className="g-lines">
-          {edges.map((edge, i) => {
+          {routedEdges.map((edge, i) => {
             const toStation = stationById[edge.to];
             const lineObj = lineById[edge.line];
             if (!toStation || !lineObj) return null;

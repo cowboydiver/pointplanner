@@ -51,6 +51,43 @@ export function routePoints(edge: Edge, stationById: Record<string, Station>): P
   }
 }
 
+/**
+ * Re-derive the diagonal-first flag for every edge from the *current* station
+ * geometry and graph shape.
+ *
+ * The `df` flag stored on an edge is only a creation-time hint; it goes stale as
+ * soon as stations are re-placed or dependencies are rewired, and "always
+ * diagonal-first" routes merges badly (multiple prerequisites all bend at their
+ * source and then overlap along the target's row). Deriving it here keeps edges
+ * clean after any add / delete / dependency change:
+ *
+ *   - same row             → straight (df irrelevant)
+ *   - fan-IN to a merge     → straight-first, so each prerequisite stays on its
+ *                             own row and bends late into the target
+ *   - everything else       → diagonal-first (a task branching out from a source)
+ */
+export function resolveRouting(edges: Edge[], stationById: Record<string, Station>): Edge[] {
+  const inDeg: Record<string, number> = {};
+  const outDeg: Record<string, number> = {};
+  for (const e of edges) {
+    inDeg[e.to] = (inDeg[e.to] || 0) + 1;
+    outDeg[e.from] = (outDeg[e.from] || 0) + 1;
+  }
+
+  return edges.map(e => {
+    const a = stationById[e.from];
+    const b = stationById[e.to];
+    if (!a || !b || a.row === b.row) return { ...e, df: false };
+
+    const targetIsMerge = (inDeg[e.to] || 0) > 1;
+    const sourceIsBranch = (outDeg[e.from] || 0) > 1;
+    // Converging edges look cleanest bending late into the target; a pure branch
+    // fans out best bending early at the source.
+    const df = !(targetIsMerge && !sourceIsBranch);
+    return { ...e, df };
+  });
+}
+
 export function norm(a: Point, b: Point): Point {
   const dx = b[0] - a[0], dy = b[1] - a[1];
   const l = Math.hypot(dx, dy) || 1;
