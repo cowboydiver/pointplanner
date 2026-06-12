@@ -23,3 +23,26 @@ export function buildIndexes(stations: Station[], lines: Line[], edges: Edge[]):
 
   return { stationById, lineById, prereqs, dependents };
 }
+
+/**
+ * Collect a task plus every task transitively downstream of it. Used to exclude
+ * a task's own descendants from its prerequisite options, which prevents
+ * dependency cycles (A → B → A).
+ */
+export function collectSelfAndDescendants(
+  id: string,
+  dependents: Record<string, string[]>
+): Set<string> {
+  const out = new Set<string>([id]);
+  const stack = [id];
+  while (stack.length) {
+    const cur = stack.pop()!;
+    for (const next of dependents[cur] || []) {
+      if (!out.has(next)) {
+        out.add(next);
+        stack.push(next);
+      }
+    }
+  }
+  return out;
+}

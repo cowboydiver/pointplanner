@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { reducer, type StoreState } from './projectStore';
+import { reducer, type StoreState } from './reducer';
 import type { Line, Station, Edge } from '../types';
 
 const LINES: Line[] = [
@@ -118,5 +118,55 @@ describe('UPDATE_TASK', () => {
     expect(next.modalMode).toBe('create');
     expect(next.editId).toBeNull();
     expect(next.selectedId).toBe('c');
+  });
+
+  it('does NOT move the station on a metadata-only edit (prereqs unchanged)', () => {
+    // b currently depends on a; keep that and only rename it.
+    const next = reducer(makeState(), {
+      type: 'UPDATE_TASK',
+      id: 'b',
+      data: { name: 'Renamed', lines: ['a'], prereqs: ['a'] },
+    });
+    const b = next.stations.find(s => s.id === 'b')!;
+    expect(b.name).toBe('Renamed');
+    expect([b.col, b.row]).toEqual([1, 0]);
+  });
+
+  it('does NOT teleport a no-prerequisite root task to col 0', () => {
+    const state = makeState();
+    // a is a root (no incoming edges); park it away from the origin.
+    state.stations = state.stations.map(s => (s.id === 'a' ? { ...s, col: 5, row: 2 } : s));
+    const next = reducer(state, {
+      type: 'UPDATE_TASK',
+      id: 'a',
+      data: { name: 'Renamed root', lines: ['a'], prereqs: [] },
+    });
+    const a = next.stations.find(s => s.id === 'a')!;
+    expect([a.col, a.row]).toEqual([5, 2]);
+  });
+
+  it('remaps outgoing edges off a line the task no longer sits on', () => {
+    // Move b onto line "b" only; its outgoing edge b->c was colored "a".
+    const next = reducer(makeState(), {
+      type: 'UPDATE_TASK',
+      id: 'b',
+      data: { name: 'b', lines: ['b'], prereqs: ['a'] },
+    });
+    const outgoing = next.edges.find(e => e.from === 'b' && e.to === 'c')!;
+    expect(outgoing.line).toBe('b');
+    // incoming edge is rebuilt on the new primary line too
+    expect(next.edges.find(e => e.from === 'a' && e.to === 'b')!.line).toBe('b');
+  });
+
+  it('drops prerequisites that would create a cycle (descendant or self)', () => {
+    // c is downstream of b (b->c); selecting it as b's prereq must be ignored.
+    const next = reducer(makeState(), {
+      type: 'UPDATE_TASK',
+      id: 'b',
+      data: { name: 'b', lines: ['a'], prereqs: ['c', 'b'] },
+    });
+    expect(next.edges.some(e => e.from === 'c' && e.to === 'b')).toBe(false);
+    expect(next.edges.some(e => e.from === 'b' && e.to === 'b')).toBe(false);
+    expect(next.edges.filter(e => e.to === 'b')).toHaveLength(0);
   });
 });

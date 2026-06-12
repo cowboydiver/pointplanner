@@ -2,16 +2,14 @@ import { useRef, useState, useEffect, useCallback } from 'react';
 import { useStore } from '../store/projectStore';
 import type { CreateTaskData, EditTaskData } from '../store/projectStore';
 import type { Line, Station } from '../types';
+import { collectSelfAndDescendants } from '../lib/indexes';
+import { PLACEHOLDER_DESC, PLACEHOLDER_OWNER, PLACEHOLDER_DASH } from '../lib/placeholders';
 
 const NEW_LINE = '__new__';
 const DEFAULT_NEW_LINE_COLOR = '#7A4DD0';
 
-// Default placeholders the store substitutes for empty fields. Strip them back
-// out when pre-filling the edit form so the user sees clean placeholders.
-const PLACEHOLDER_DESC = 'No description yet.';
-const PLACEHOLDER_OWNER = 'Unassigned';
-const PLACEHOLDER_DASH = '—';
-
+// Strip the store's default placeholders back out when pre-filling the edit
+// form so the user sees clean placeholders rather than literal "Unassigned" etc.
 function unplaceholder(value: string, placeholder: string): string {
   return value === placeholder ? '' : value;
 }
@@ -362,26 +360,6 @@ function ModalForm({
       </div>
     </>
   );
-}
-
-// Collect a task plus every task transitively downstream of it, so they can be
-// excluded from its own prerequisite list (prevents dependency cycles).
-function collectSelfAndDescendants(
-  id: string,
-  dependents: Record<string, string[]>
-): Set<string> {
-  const out = new Set<string>([id]);
-  const stack = [id];
-  while (stack.length) {
-    const cur = stack.pop()!;
-    for (const next of dependents[cur] || []) {
-      if (!out.has(next)) {
-        out.add(next);
-        stack.push(next);
-      }
-    }
-  }
-  return out;
 }
 
 export function CreateModal() {
