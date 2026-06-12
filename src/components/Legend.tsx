@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useStore } from '../store/projectStore';
 import { useMapRegistry } from '../store/mapRegistry';
 import { ConfirmDialog } from './ConfirmDialog';
+import { LineEditor } from './LineEditor';
 
 export function Legend() {
   const { state, dispatch } = useStore();
@@ -10,6 +11,8 @@ export function Legend() {
   // Use registry name as the canonical display name; fall back to store name if missing
   const displayName = activeMeta?.name ?? project.name;
   const [pendingDeleteLine, setPendingDeleteLine] = useState<string | null>(null);
+  const [editingLine, setEditingLine] = useState<string | null>(null);
+  const [creatingLine, setCreatingLine] = useState(false);
 
   const total = stations.length;
   const done = stations.filter(s => s.status === 'done').length;
@@ -42,18 +45,39 @@ export function Legend() {
 
       <div className="sec-h">
         Lines
-        {highlightLine && (
+        <span className="sec-h-actions">
+          {highlightLine && (
+            <button
+              className="clear-hl"
+              onClick={() => dispatch({ type: 'SET_HIGHLIGHT_LINE', lineId: null })}
+            >
+              show all
+            </button>
+          )}
           <button
-            className="clear-hl"
-            onClick={() => dispatch({ type: 'SET_HIGHLIGHT_LINE', lineId: null })}
+            className="add-line"
+            type="button"
+            onClick={() => { setCreatingLine(true); setEditingLine(null); }}
           >
-            show all
+            + Add line
           </button>
-        )}
+        </span>
       </div>
 
       <div className="lines-list">
         {lines.map(l => {
+          if (editingLine === l.id) {
+            return (
+              <LineEditor
+                key={l.id}
+                initial={{ name: l.name, color: l.color, short: l.short }}
+                submitLabel="Save"
+                onSave={data => { dispatch({ type: 'UPDATE_LINE', id: l.id, data }); setEditingLine(null); }}
+                onCancel={() => setEditingLine(null)}
+              />
+            );
+          }
+
           const lineStations = stations.filter(s => s.lines.includes(l.id));
           const lineDone = lineStations.filter(s => s.status === 'done').length;
           const linePct = lineStations.length > 0 ? Math.round((lineDone / lineStations.length) * 100) : 0;
@@ -80,6 +104,14 @@ export function Legend() {
                 </span>
               </button>
               <button
+                className="line-edit"
+                type="button"
+                aria-label={`Edit ${l.name}`}
+                onClick={() => { setEditingLine(l.id); setCreatingLine(false); }}
+              >
+                ✎
+              </button>
+              <button
                 className="line-delete"
                 type="button"
                 aria-label={`Delete ${l.name}`}
@@ -90,6 +122,14 @@ export function Legend() {
             </div>
           );
         })}
+
+        {creatingLine && (
+          <LineEditor
+            submitLabel="Add line"
+            onSave={data => { dispatch({ type: 'CREATE_LINE', data }); setCreatingLine(false); }}
+            onCancel={() => setCreatingLine(false)}
+          />
+        )}
       </div>
 
       {pendingDeleteLine && (() => {
