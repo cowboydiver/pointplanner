@@ -170,6 +170,13 @@ export function DetailPanel() {
           <button
             className="act ghost"
             type="button"
+            onClick={() => dispatch({ type: 'OPEN_EDIT_MODAL', id: station.id })}
+          >
+            Edit task
+          </button>
+          <button
+            className="act ghost"
+            type="button"
             onClick={() => dispatch({
               type: 'OPEN_MODAL',
               preset: { line: station.lines[0], prereqs: [station.id] },
