@@ -11,18 +11,13 @@ import {
   deleteMap,
   duplicateMap,
 } from '../lib/maps';
-import { getCommittedMaps } from '../lib/committedMaps';
+import { getCommittedMaps, getCommittedMapById } from '../lib/committedMaps';
+import { COMMITTED_ID_PREFIX, mapDataKey, committedSourceId, reimportCommittedMapData } from './committedReimport';
 
 const REGISTRY_KEY = 'pointplanner.index';
 // Remembers which committed maps have already been copied into localStorage, so
 // a committed map the user later deletes is not silently re-seeded.
 const SEEDED_KEY = 'pointplanner.committed-seeded';
-// Prefix keeps committed-map ids in their own namespace, clear of seed/blank ids.
-const COMMITTED_ID_PREFIX = 'committed-';
-
-function mapDataKey(id: string): string {
-  return 'pointplanner.map.' + id;
-}
 
 function loadIndex(): MapIndex {
   try {
@@ -109,17 +104,25 @@ function seedCommittedMaps(index: MapIndex): MapIndex {
 interface MapRegistryContextValue {
   index: MapIndex;
   activeMeta: MapMeta | null;
+  // Bumped on re-import so the active map's store provider remounts and re-reads
+  // the freshly overwritten localStorage data.
+  reloadNonce: number;
   createMap: (name: string) => void;
   selectMap: (id: string) => void;
   renameMapById: (id: string, name: string) => void;
   deleteMapById: (id: string) => void;
   duplicateMapById: (id: string) => void;
+  // Committed file id (e.g. `roadmap`) this map can re-sync from, or null.
+  reimportSourceFor: (id: string) => string | null;
+  // Replace a committed-backed map's editable copy with the committed file.
+  reimportMapById: (id: string) => void;
 }
 
 const MapRegistryContext = createContext<MapRegistryContextValue | null>(null);
 
 export function MapRegistryProvider({ children }: { children: React.ReactNode }) {
   const [index, setIndex] = useState<MapIndex>(() => seedCommittedMaps(loadIndex()));
+  const [reloadNonce, setReloadNonce] = useState(0);
 
   // Persist index whenever it changes
   useEffect(() => {
@@ -192,14 +195,40 @@ export function MapRegistryProvider({ children }: { children: React.ReactNode })
     setIndex(prev => duplicateMap(prev, id, { id: newId, name: newName }));
   }
 
+  function reimportSourceFor(id: string): string | null {
+    const fileId = committedSourceId(id);
+    if (fileId === null) return null;
+    // Only offer re-import when the committed file still exists.
+    return getCommittedMapById(fileId) ? fileId : null;
+  }
+
+  function reimportMapById(id: string): void {
+    const fileId = committedSourceId(id);
+    if (fileId === null) return;
+    const committed = getCommittedMapById(fileId);
+    if (!committed) return;
+    try {
+      reimportCommittedMapData(localStorage, id, committed);
+    } catch {
+      // ignore
+    }
+    // Keep the registry name in sync with the committed file, then force the
+    // active store provider to remount so the live view reflects the new data.
+    setIndex(prev => renameMap(prev, id, committed.name));
+    setReloadNonce(n => n + 1);
+  }
+
   const value: MapRegistryContextValue = {
     index,
     activeMeta,
+    reloadNonce,
     createMap,
     selectMap,
     renameMapById,
     deleteMapById,
     duplicateMapById,
+    reimportSourceFor,
+    reimportMapById,
   };
 
   return (

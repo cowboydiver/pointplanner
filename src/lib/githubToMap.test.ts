@@ -359,6 +359,24 @@ describe('githubToMap', () => {
     expect(map.stations.find(s => s.id === 'issue-2')!.status).toBe('active');
   });
 
+  it('keys station ids off the issue number, stable when the title changes (re-import diffs)', () => {
+    // Same issue number, different title → same station id and same sourceUrl,
+    // so a regenerated/re-imported map produces a clean diff.
+    const url = 'https://github.com/cowboydiver/pointplanner/issues/7';
+    const before = githubToMap({
+      issues: [{ ...open(7, 'Original title'), url }],
+      milestones: [],
+    });
+    const after = githubToMap({
+      issues: [{ ...open(7, 'Renamed entirely'), url }],
+      milestones: [],
+    });
+    expect(before.stations[0].id).toBe('issue-7');
+    expect(after.stations[0].id).toBe('issue-7');
+    expect(after.stations[0].name).toBe('Renamed entirely');
+    expect(before.stations[0].sourceUrl).toBe(after.stations[0].sourceUrl);
+  });
+
   it('populates sourceUrl from the issue url, and omits it when absent', () => {
     const withUrl: GitHubIssue = {
       ...open(1, 'Linked'),

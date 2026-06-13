@@ -47,3 +47,10 @@ export function getCommittedMaps(): CommittedMap[] {
   out.sort((a, b) => a.id.localeCompare(b.id));
   return out;
 }
+
+// Look up a single committed map by its filename-derived id (e.g. `roadmap`).
+// Returns null when no committed file matches — used to decide whether an
+// already-imported map can still be re-synced from a committed file.
+export function getCommittedMapById(id: string): CommittedMap | null {
+  return getCommittedMaps().find(c => c.id === id) ?? null;
+}
