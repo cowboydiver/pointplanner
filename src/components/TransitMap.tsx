@@ -1,7 +1,9 @@
-import { useMemo, useCallback } from 'react';
+import { useMemo, useCallback, useRef } from 'react';
 import { useStore } from '../store/projectStore';
 import { computeBounds } from '../lib/bounds';
 import { resolveRouting } from '../lib/routing';
+import { toTransform } from '../lib/panzoom';
+import { usePanZoom } from './usePanZoom';
 import { Segment } from './Segment';
 import { StationNode } from './StationNode';
 
@@ -11,7 +13,9 @@ export function TransitMap() {
   const { stationById, lineById } = indexes;
 
   const bounds = useMemo(() => computeBounds(stations), [stations]);
-  const minWidth = Math.max(980, Math.round(bounds.vw * 0.62));
+
+  const svgRef = useRef<SVGSVGElement>(null);
+  const { transform, isPanning, onPointerDown, zoomIn, zoomOut, reset } = usePanZoom(svgRef);
 
   // Routing (df) is derived from current positions + graph shape so edges stay
   // clean after re-placement or dependency changes, rather than trusting the
@@ -25,16 +29,16 @@ export function TransitMap() {
   const viewBox = `${bounds.vx} ${bounds.vy} ${bounds.vw} ${bounds.vh}`;
 
   return (
-    <div
-      className="map-canvas"
-      style={{ minWidth: `${minWidth}px` }}
-    >
+    <div className={`map-canvas${isPanning ? ' is-panning' : ''}`}>
       <svg
+        ref={svgRef}
         id="map-svg"
         viewBox={viewBox}
         preserveAspectRatio="xMidYMid meet"
         className={highlightLine ? 'has-highlight' : ''}
+        onPointerDown={onPointerDown}
       >
+        <g className="g-viewport" transform={toTransform(transform)}>
         <g className="g-lines">
           {routedEdges.map((edge, i) => {
             const toStation = stationById[edge.to];
@@ -75,7 +79,13 @@ export function TransitMap() {
             );
           })}
         </g>
+        </g>
       </svg>
+      <div className="map-controls" role="group" aria-label="Map zoom controls">
+        <button type="button" className="map-ctrl" onClick={zoomIn} aria-label="Zoom in" title="Zoom in">+</button>
+        <button type="button" className="map-ctrl" onClick={zoomOut} aria-label="Zoom out" title="Zoom out">−</button>
+        <button type="button" className="map-ctrl" onClick={reset} aria-label="Reset view" title="Reset view">⤢</button>
+      </div>
     </div>
   );
 }
