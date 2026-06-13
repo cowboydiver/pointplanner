@@ -65,3 +65,7 @@ Default label vocabulary (`needs-triage`, `needs-info`, `ready-for-agent`, `read
 ### Domain docs
 
 Single-context repo — one `CONTEXT.md` + `docs/adr/` at the repo root. See `docs/agents/domain.md`.
+
+### Roadmap map
+
+Generate a PointPlanner map from this repo's GitHub issues (`npm run generate-map`, optionally `--filter`). The `/roadmap-map` skill drives fetch → generate → review → commit. See `docs/agents/roadmap-map.md`.
