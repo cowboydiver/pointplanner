@@ -1,10 +1,14 @@
 import { describe, it, expect } from 'vitest';
 import {
   githubToMap,
+  githubToMapReport,
+  scopeInputByFilter,
+  slugify,
   type GitHubIssue,
   type GitHubMilestone,
   type GitHubRelationship,
 } from './githubToMap';
+import { validateMapData } from './validateMap';
 import issuesFixture from './__fixtures__/issues.json';
 import milestonesFixture from './__fixtures__/milestones.json';
 
@@ -157,5 +161,109 @@ describe('githubToMap', () => {
     // #4 has no prereqs → available.
     const s4 = map.stations.find(s => s.id === 'issue-4')!;
     expect(s4.status).toBe('available');
+  });
+
+  // ---- Issue #9: robustness — cycles, self/dup edges, validity ----
+
+  const open = (number: number, title: string): GitHubIssue => ({
+    number,
+    title,
+    state: 'open',
+    milestone: null,
+    body: '',
+  });
+
+  it('breaks a dependency cycle deterministically and reports the dropped edge', () => {
+    const issues = [open(1, 'A'), open(2, 'B')];
+    const relationships: GitHubRelationship[] = [
+      { prereq: 1, dependent: 2 },
+      { prereq: 2, dependent: 1 },
+    ];
+    const { map, dropped } = githubToMapReport({ issues, milestones: [], relationships });
+    // Exactly one cycle-closing edge dropped; the surviving graph is acyclic.
+    const cycleDrops = dropped.filter(d => d.reason === 'cycle');
+    expect(cycleDrops).toEqual([{ prereq: 1, dependent: 2, reason: 'cycle' }]);
+    expect(map.edges).toEqual([
+      expect.objectContaining({ from: 'issue-2', to: 'issue-1' }),
+    ]);
+    expect(validateMapData(map)).toEqual([]);
+  });
+
+  it('is deterministic across input orderings of a cycle', () => {
+    const issues = [open(1, 'A'), open(2, 'B')];
+    const a = githubToMapReport({
+      issues,
+      milestones: [],
+      relationships: [
+        { prereq: 1, dependent: 2 },
+        { prereq: 2, dependent: 1 },
+      ],
+    });
+    const b = githubToMapReport({
+      issues,
+      milestones: [],
+      relationships: [
+        { prereq: 2, dependent: 1 },
+        { prereq: 1, dependent: 2 },
+      ],
+    });
+    expect(a.dropped).toEqual(b.dropped);
+    expect(a.map.edges).toEqual(b.map.edges);
+  });
+
+  it('drops a self-edge and reports it', () => {
+    const issues = [open(1, 'A')];
+    const { map, dropped } = githubToMapReport({
+      issues,
+      milestones: [],
+      relationships: [{ prereq: 1, dependent: 1 }],
+    });
+    expect(dropped).toContainEqual({ prereq: 1, dependent: 1, reason: 'self' });
+    expect(map.edges).toEqual([]);
+  });
+
+  it('drops a duplicate edge (native + body) and reports one drop', () => {
+    const issues = [open(1, 'A'), { ...open(2, 'B'), body: 'Depends on #1' }];
+    const { map, dropped } = githubToMapReport({
+      issues,
+      milestones: [],
+      relationships: [{ prereq: 1, dependent: 2 }],
+    });
+    expect(map.edges.filter(e => e.from === 'issue-1' && e.to === 'issue-2')).toHaveLength(1);
+    expect(dropped).toContainEqual({ prereq: 1, dependent: 2, reason: 'duplicate' });
+  });
+
+  it('emits a valid Backlog-only map for empty input', () => {
+    const map = githubToMap({ issues: [], milestones: [] });
+    expect(map.lines).toEqual([expect.objectContaining({ name: 'Backlog' })]);
+    expect(map.stations).toEqual([]);
+    expect(map.edges).toEqual([]);
+    expect(validateMapData(map)).toEqual([]);
+  });
+
+  // ---- Issue #9: scoping via --filter ----
+
+  it('slugify lowercases and hyphenates, falling back to "map"', () => {
+    expect(slugify('Build Phase')).toBe('build-phase');
+    expect(slugify('  Q3 / 2026!! ')).toBe('q3-2026');
+    expect(slugify('!!!')).toBe('map');
+  });
+
+  it('scopes input to issues matching a milestone title (by slug)', () => {
+    const scoped = scopeInputByFilter({ issues, milestones }, 'Design Phase');
+    const map = githubToMap(scoped);
+    // Only Design Phase issues survive; Build Phase line is gone.
+    expect(map.lines.map(l => l.name)).toEqual(['Design Phase']);
+    expect(map.stations.every(s => s.lines[0] === map.lines[0].id)).toBe(true);
+    expect(validateMapData(map)).toEqual([]);
+  });
+
+  it('scopes input to issues matching a label (by slug)', () => {
+    const labelled: GitHubIssue[] = [
+      { ...open(1, 'Has it'), labels: [{ name: 'High Priority' }] },
+      { ...open(2, 'Lacks it'), labels: [{ name: 'chore' }] },
+    ];
+    const scoped = scopeInputByFilter({ issues: labelled, milestones: [] }, 'high-priority');
+    expect(scoped.issues.map(i => i.number)).toEqual([1]);
   });
 });

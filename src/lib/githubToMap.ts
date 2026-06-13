@@ -13,12 +13,17 @@ export interface GitHubMilestone {
   number?: number;
 }
 
+export interface GitHubLabel {
+  name: string;
+}
+
 export interface GitHubIssue {
   number: number;
   title: string;
   state: string; // 'open' | 'closed' | 'OPEN' | 'CLOSED'
   milestone?: GitHubMilestone | null;
   body?: string | null;
+  labels?: GitHubLabel[];
 }
 
 export interface GitHubRepoInfo {
@@ -46,7 +51,62 @@ export interface GithubToMapInput {
   relationships?: GitHubRelationship[];
 }
 
+/** Why a dependency edge was dropped during the transform. */
+export type DroppedReason = 'self' | 'duplicate' | 'cycle';
+
+/** A dependency edge the transform discarded, with a human-readable reason. */
+export interface DroppedEdge {
+  prereq: number; // upstream issue (`from`)
+  dependent: number; // downstream issue (`to`)
+  reason: DroppedReason;
+}
+
+/** Result of the transform plus the list of edges it had to drop. */
+export interface GithubToMapResult {
+  map: MapData;
+  dropped: DroppedEdge[];
+}
+
 const BACKLOG_LINE_ID = 'backlog';
+
+/**
+ * Lowercase, hyphenated slug for filenames / ids (e.g. `"Build Phase"` →
+ * `"build-phase"`). Empty / symbol-only input falls back to `'map'`.
+ */
+export function slugify(raw: string): string {
+  return (
+    raw.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'map'
+  );
+}
+
+/**
+ * Scope a transform input to issues matching `filter` (a label name or a
+ * milestone title, matched case-insensitively by slug). Returns a new input with
+ * only the matching issues and only the milestones those issues reference, so a
+ * filtered map carries no empty lines. Pure — the script slugifies the filter
+ * for the output filename and decorates `project.name`.
+ *
+ * Relationships are kept as-is; the transform already drops edges whose
+ * endpoints aren't stations, so cross-scope links fall away cleanly.
+ */
+export function scopeInputByFilter(
+  input: GithubToMapInput,
+  filter: string,
+): GithubToMapInput {
+  const target = slugify(filter);
+  const matches = (iss: GitHubIssue): boolean => {
+    if (iss.milestone && slugify(iss.milestone.title) === target) return true;
+    return (iss.labels ?? []).some(l => slugify(l.name) === target);
+  };
+
+  const issues = input.issues.filter(matches);
+  const keptMilestones = new Set(
+    issues.map(iss => iss.milestone?.title).filter((t): t is string => !!t),
+  );
+  const milestones = input.milestones.filter(m => keptMilestones.has(m.title));
+
+  return { ...input, issues, milestones };
+}
 
 // Deterministic palette, cycled by line order. Mirrors the seed line colors so
 // generated maps look at home next to hand-authored ones.
@@ -146,19 +206,42 @@ function parseBodyDeps(body: string | null | undefined): number[] {
  *   `layoutStations`: col by dependency depth, row packed per line band.
  */
 export function githubToMap(input: GithubToMapInput): MapData {
+  return githubToMapReport(input).map;
+}
+
+/**
+ * Like {@link githubToMap}, but also returns the list of dependency edges the
+ * transform had to drop (self-references, duplicates, and edges broken to make
+ * the graph acyclic). The generator script prints these so the user can fix the
+ * underlying issues; this layer stays I/O-free and just reports.
+ */
+export function githubToMapReport(input: GithubToMapInput): GithubToMapResult {
   const { issues, milestones, repo, relationships = [] } = input;
+  const dropped: DroppedEdge[] = [];
 
   const issueByNumber = new Map<number, GitHubIssue>();
   issues.forEach(iss => issueByNumber.set(iss.number, iss));
 
   // ---- 1. Resolve all dependency pairs (native + body-text fallback). ----
-  // Deduped set of "prereq → dependent" pairs, both numbers referencing real
-  // issues we actually have.
-  const depPairs = new Set<string>(); // key: `${prereq}->${dependent}`
+  // Deduped, ordered list of "prereq → dependent" pairs, both numbers
+  // referencing real issues. Self-edges and duplicates are dropped here (and
+  // reported); pairs referencing unknown issues are skipped silently (a closed
+  // prereq with no station, say, is expected — not worth a warning).
+  const depPairs: { prereq: number; dependent: number }[] = [];
+  const seenPair = new Set<string>(); // key: `${prereq}->${dependent}`
   const addPair = (prereq: number, dependent: number) => {
-    if (prereq === dependent) return;
+    if (prereq === dependent) {
+      dropped.push({ prereq, dependent, reason: 'self' });
+      return;
+    }
     if (!issueByNumber.has(prereq) || !issueByNumber.has(dependent)) return;
-    depPairs.add(`${prereq}->${dependent}`);
+    const key = `${prereq}->${dependent}`;
+    if (seenPair.has(key)) {
+      dropped.push({ prereq, dependent, reason: 'duplicate' });
+      return;
+    }
+    seenPair.add(key);
+    depPairs.push({ prereq, dependent });
   };
 
   relationships.forEach(r => addPair(r.prereq, r.dependent));
@@ -166,14 +249,18 @@ export function githubToMap(input: GithubToMapInput): MapData {
     for (const prereq of parseBodyDeps(iss.body)) addPair(prereq, iss.number);
   });
 
+  // ---- 1b. Break cycles deterministically so the map always renders. ----
+  // Walk pairs in a stable order, adding each to an acyclic accumulator. An edge
+  // that would close a cycle (its `dependent` can already reach its `prereq`) is
+  // dropped. Pairs are sorted so the edge whose `to`/`dependent` has the smaller
+  // issue number is the one dropped — a deterministic, documented choice.
+  const acyclicPairs = breakCycles(depPairs, dropped);
+
   // ---- 2. Decide which issues become stations. ----
   // Every open issue is a station. A closed issue is included only if some open
   // issue depends on it.
   const dependentsOfClosed = new Set<number>(); // closed issue numbers referenced by an open dependent
-  for (const key of depPairs) {
-    const [prereqStr, dependentStr] = key.split('->');
-    const prereq = Number(prereqStr);
-    const dependent = Number(dependentStr);
+  for (const { prereq, dependent } of acyclicPairs) {
     const prereqIssue = issueByNumber.get(prereq);
     const dependentIssue = issueByNumber.get(dependent);
     if (!prereqIssue || !dependentIssue) continue;
@@ -204,7 +291,10 @@ export function githubToMap(input: GithubToMapInput): MapData {
     });
   });
 
-  const hasBacklog = includedIssues.some(iss => !iss.milestone);
+  // A Backlog line is needed when an issue has no milestone, OR when there are
+  // no lines at all yet (empty repo / no milestones) — every valid map must have
+  // at least one line, and the app's EmptyState renders the zero-station case.
+  const hasBacklog = includedIssues.some(iss => !iss.milestone) || lines.length === 0;
   let backlogLineId: string | null = null;
   if (hasBacklog) {
     backlogLineId = slugifyId(BACKLOG_LINE_ID, usedLineIds);
@@ -253,10 +343,7 @@ export function githubToMap(input: GithubToMapInput): MapData {
   // ---- 5. Build edges. Colored by the downstream (`to`) station's line. ----
   const edges: Edge[] = [];
   const seenEdge = new Set<string>();
-  for (const key of depPairs) {
-    const [prereqStr, dependentStr] = key.split('->');
-    const prereq = Number(prereqStr);
-    const dependent = Number(dependentStr);
+  for (const { prereq, dependent } of acyclicPairs) {
     const from = stationIdByNumber.get(prereq);
     const to = stationIdByNumber.get(dependent);
     // Both endpoints must be stations (e.g. a closed prereq with no open
@@ -303,12 +390,70 @@ export function githubToMap(input: GithubToMapInput): MapData {
   const settledStations = recompute(stations, prereqs);
 
   return {
-    project: {
-      name: repo?.name || 'Roadmap',
-      subtitle: repo?.description || 'Generated from GitHub issues',
+    map: {
+      project: {
+        name: repo?.name || 'Roadmap',
+        subtitle: repo?.description || 'Generated from GitHub issues',
+      },
+      lines,
+      stations: settledStations,
+      edges,
     },
-    lines,
-    stations: settledStations,
-    edges,
+    dropped,
   };
+}
+
+/**
+ * Break cycles in a dependency-pair graph deterministically.
+ *
+ * Pairs are processed in a stable order and added to an acyclic accumulator one
+ * at a time; any pair whose `dependent` can already reach its `prereq` (i.e.
+ * adding it would close a cycle) is dropped and recorded. Pairs are sorted by
+ * the dependent (`to`) then prereq (`from`) issue number, so the edge kept for a
+ * simple 2-cycle is the one whose `to` is the smaller number and the dropped
+ * (cycle-closing) edge is its mirror — a documented, reproducible choice.
+ *
+ * @param pairs   deduped prereq→dependent pairs (no self-edges)
+ * @param dropped mutated: each broken edge is pushed with reason `'cycle'`
+ * @returns the subset of `pairs` that forms an acyclic graph
+ */
+function breakCycles(
+  pairs: { prereq: number; dependent: number }[],
+  dropped: DroppedEdge[],
+): { prereq: number; dependent: number }[] {
+  // Sort by dependent (`to`) then prereq (`from`) so the edge dropped to break a
+  // cycle is deterministically the one whose `to` has the smaller issue number.
+  const ordered = [...pairs].sort(
+    (a, b) => a.dependent - b.dependent || a.prereq - b.prereq,
+  );
+
+  // Adjacency over accepted edges: prereq -> [dependents...]. Reachability is
+  // "can `dependent` reach `prereq` by following accepted edges?"; if so, adding
+  // prereq→dependent would close a cycle.
+  const adj = new Map<number, number[]>();
+  const canReach = (start: number, target: number): boolean => {
+    const stack = [start];
+    const seen = new Set<number>();
+    while (stack.length) {
+      const cur = stack.pop()!;
+      if (cur === target) return true;
+      if (seen.has(cur)) continue;
+      seen.add(cur);
+      for (const next of adj.get(cur) ?? []) stack.push(next);
+    }
+    return false;
+  };
+
+  const kept: { prereq: number; dependent: number }[] = [];
+  for (const pair of ordered) {
+    if (canReach(pair.dependent, pair.prereq)) {
+      dropped.push({ ...pair, reason: 'cycle' });
+      continue;
+    }
+    const out = adj.get(pair.prereq);
+    if (out) out.push(pair.dependent);
+    else adj.set(pair.prereq, [pair.dependent]);
+    kept.push(pair);
+  }
+  return kept;
 }

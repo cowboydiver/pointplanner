@@ -10,16 +10,31 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
-  githubToMap,
+  githubToMapReport,
+  scopeInputByFilter,
+  slugify,
   type GitHubIssue,
   type GitHubMilestone,
   type GitHubRelationship,
   type GitHubRepoInfo,
+  type GithubToMapInput,
+  type DroppedEdge,
 } from '../src/lib/githubToMap.ts';
+import { validateMapData } from '../src/lib/validateMap.ts';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(__dirname, '..');
-const OUT_PATH = resolve(repoRoot, 'maps/roadmap.json');
+const MAPS_DIR = resolve(repoRoot, 'maps');
+
+/** Parse `--filter <value>` (also `--filter=<value>`) from argv; null if absent. */
+function parseFilter(argv: string[]): string | null {
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i];
+    if (a === '--filter') return argv[i + 1] ?? null;
+    if (a.startsWith('--filter=')) return a.slice('--filter='.length);
+  }
+  return null;
+}
 
 function gh(args: string[]): string {
   try {
@@ -43,7 +58,7 @@ function fetchIssues(): GitHubIssue[] {
     '--limit',
     '1000',
     '--json',
-    'number,title,state,milestone,body',
+    'number,title,state,milestone,body,labels',
   ]);
   return JSON.parse(out) as GitHubIssue[];
 }
@@ -164,19 +179,63 @@ function fetchRepoInfo(): GitHubRepoInfo {
   return JSON.parse(out) as GitHubRepoInfo;
 }
 
+/** Human-readable one-liner per dropped edge, for stdout reporting. */
+function describeDropped(d: DroppedEdge): string {
+  const reason =
+    d.reason === 'self'
+      ? 'self-reference'
+      : d.reason === 'duplicate'
+        ? 'duplicate edge'
+        : 'cycle-breaking';
+  return `  - #${d.prereq} → #${d.dependent} (${reason})`;
+}
+
 function main(): void {
+  const filter = parseFilter(process.argv.slice(2));
+
   const issues = fetchIssues();
   const milestones = fetchMilestones();
   const repo = fetchRepoInfo();
   const relationships = fetchRelationships(fetchRepoCoords());
 
-  const map = githubToMap({ issues, milestones, repo, relationships });
+  let input: GithubToMapInput = { issues, milestones, repo, relationships };
+  // For a filtered map, name = `<repo> — <filter>`; subtitle stays the repo
+  // description. Bare run keeps the repo name/subtitle the transform derives.
+  let outFile = 'roadmap.json';
+  if (filter) {
+    input = scopeInputByFilter(input, filter);
+    input = {
+      ...input,
+      repo: {
+        ...repo,
+        name: `${repo.name ?? 'Roadmap'} — ${filter}`,
+      },
+    };
+    outFile = `${slugify(filter)}.json`;
+  }
 
-  mkdirSync(dirname(OUT_PATH), { recursive: true });
-  writeFileSync(OUT_PATH, JSON.stringify(map, null, 2) + '\n', 'utf8');
+  const { map, dropped } = githubToMapReport(input);
+
+  // Report dropped edges so the user can fix the underlying issues.
+  if (dropped.length) {
+    console.log(`Dropped ${dropped.length} edge(s):`);
+    for (const d of dropped) console.log(describeDropped(d));
+  }
+
+  // Refuse to write a malformed map.
+  const errors = validateMapData(map);
+  if (errors.length) {
+    console.error('Refusing to write malformed map:');
+    for (const e of errors) console.error(`  - ${e}`);
+    process.exit(1);
+  }
+
+  const outPath = resolve(MAPS_DIR, outFile);
+  mkdirSync(MAPS_DIR, { recursive: true });
+  writeFileSync(outPath, JSON.stringify(map, null, 2) + '\n', 'utf8');
 
   console.log(
-    `Wrote ${OUT_PATH} — ${map.stations.length} stations across ${map.lines.length} lines.`,
+    `Wrote ${outPath} — ${map.stations.length} stations across ${map.lines.length} lines.`,
   );
 }
 
