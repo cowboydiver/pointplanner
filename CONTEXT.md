@@ -21,6 +21,24 @@ PointPlanner renders a project as a **subway transit map**: tasks are **stations
 | **Routing** | The algorithm that converts an (source, target) station pair into a sequence of 45°-only waypoints |
 | **df (diagonal-first)** | Routing flag: when true, the path goes diagonal before going straight; used when source and target are on different rows |
 
+## Accounts & sharing
+
+| Term | Definition |
+|---|---|
+| **Map** | A whole transit-map document: one `project` (name + subtitle) plus its lines, stations and edges. The unit of saving, ownership and sharing. |
+| **User** | An authenticated person, identified by email. The actor that owns and is granted access to maps. |
+| **Owner** | The single User who created a map; the only one who can share it or delete it |
+| **Editor** | A User granted asynchronous edit access to a shared map — may change anything in it, but not re-share or delete it |
+| **Viewer** | A User granted read-only access to a shared map |
+| **Share** | The act (and the record) of granting another User an Editor or Viewer role on a map |
+
+### What to avoid here
+
+- Don't say "account" for the person — say **User** (an account is the credential, not the actor)
+- Don't say "project" for the whole document — say **Map** (`project` is just the name/subtitle field inside it)
+- Don't say "collaborator" generically — name the role: **Editor** or **Viewer**
+- Don't say "team", "workspace" or "organization" — there is no such entity; sharing is peer-to-peer between Users
+
 ## Status state machine
 
 ```
