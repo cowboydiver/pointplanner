@@ -4,9 +4,6 @@ on:
   push:
     branches:
       - main
-      # Temporary: lets the app go live before this branch is merged.
-      # Safe to remove once merged to main.
-      - claude/map-pan-zoom-l3y8pv
   workflow_dispatch:
 
 # Allow the workflow to publish to Pages.
