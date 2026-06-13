@@ -1,0 +1,26 @@
+[
+  {
+    "number": 1,
+    "title": "Set up design system",
+    "state": "closed",
+    "milestone": { "title": "Design Phase", "number": 1 }
+  },
+  {
+    "number": 2,
+    "title": "Build component library",
+    "state": "open",
+    "milestone": { "title": "Design Phase", "number": 1 }
+  },
+  {
+    "number": 3,
+    "title": "Ship the API",
+    "state": "open",
+    "milestone": { "title": "Build Phase", "number": 2 }
+  },
+  {
+    "number": 4,
+    "title": "Investigate flaky test",
+    "state": "open",
+    "milestone": null
+  }
+]

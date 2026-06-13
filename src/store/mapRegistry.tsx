@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import type { MapIndex, MapMeta } from '../lib/maps';
+import type { MapIndex, MapMeta, MapData } from '../lib/maps';
 import {
   genMapId,
   createSeedMapData,
@@ -11,8 +11,14 @@ import {
   deleteMap,
   duplicateMap,
 } from '../lib/maps';
+import { getCommittedMaps } from '../lib/committedMaps';
 
 const REGISTRY_KEY = 'pointplanner.index';
+// Remembers which committed maps have already been copied into localStorage, so
+// a committed map the user later deletes is not silently re-seeded.
+const SEEDED_KEY = 'pointplanner.committed-seeded';
+// Prefix keeps committed-map ids in their own namespace, clear of seed/blank ids.
+const COMMITTED_ID_PREFIX = 'committed-';
 
 function mapDataKey(id: string): string {
   return 'pointplanner.map.' + id;
@@ -46,6 +52,60 @@ function loadIndex(): MapIndex {
   return { activeMapId: id, maps: [{ id, name: data.project.name }] };
 }
 
+function loadSeeded(): Set<string> {
+  try {
+    const raw = localStorage.getItem(SEEDED_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) return new Set(parsed.filter(x => typeof x === 'string'));
+    }
+  } catch {
+    // ignore
+  }
+  return new Set();
+}
+
+function saveSeeded(seeded: Set<string>): void {
+  try {
+    localStorage.setItem(SEEDED_KEY, JSON.stringify([...seeded]));
+  } catch {
+    // ignore
+  }
+}
+
+// Copy any not-yet-seeded committed maps into editable localStorage maps and
+// append them to the index. Runs once per committed map (tracked in SEEDED_KEY)
+// so user edits/deletes stick. Does not touch the existing seed/blank bootstrap.
+function seedCommittedMaps(index: MapIndex): MapIndex {
+  const committed = getCommittedMaps();
+  if (committed.length === 0) return index;
+
+  const seeded = loadSeeded();
+  let next = index;
+  let changed = false;
+
+  for (const c of committed) {
+    if (seeded.has(c.id)) continue;
+    const mapId = COMMITTED_ID_PREFIX + c.id;
+    seeded.add(c.id);
+    try {
+      // Seed the editable copy only if one isn't already present.
+      if (localStorage.getItem(mapDataKey(mapId)) === null) {
+        localStorage.setItem(mapDataKey(mapId), JSON.stringify(cloneMapData(c.data as MapData)));
+      }
+    } catch {
+      // ignore
+    }
+    if (!next.maps.some(m => m.id === mapId)) {
+      next = { ...next, maps: [...next.maps, { id: mapId, name: c.name }] };
+      changed = true;
+    }
+  }
+
+  saveSeeded(seeded);
+  return changed ? next : index;
+}
+
 interface MapRegistryContextValue {
   index: MapIndex;
   activeMeta: MapMeta | null;
@@ -59,7 +119,7 @@ interface MapRegistryContextValue {
 const MapRegistryContext = createContext<MapRegistryContextValue | null>(null);
 
 export function MapRegistryProvider({ children }: { children: React.ReactNode }) {
-  const [index, setIndex] = useState<MapIndex>(() => loadIndex());
+  const [index, setIndex] = useState<MapIndex>(() => seedCommittedMaps(loadIndex()));
 
   // Persist index whenever it changes
   useEffect(() => {
