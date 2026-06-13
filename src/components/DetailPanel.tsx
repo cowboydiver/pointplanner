@@ -98,6 +98,19 @@ export function DetailPanel() {
           </div>
         )}
 
+        {station.sourceUrl && (
+          <div className="p-source">
+            <a
+              className="p-source-link"
+              href={station.sourceUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              View on GitHub ↗
+            </a>
+          </div>
+        )}
+
         <div className="p-sec">
           <div className="p-sec-h">Depends on</div>
           {pr.length === 0 ? (

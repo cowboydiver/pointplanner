@@ -1,0 +1,73 @@
+{
+  "project": {
+    "name": "Roadmap",
+    "subtitle": "Generated from GitHub issues"
+  },
+  "lines": [
+    { "id": "design-phase", "name": "Design Phase", "color": "#D8392F", "short": "DP" },
+    { "id": "build-phase", "name": "Build Phase", "color": "#2563C9", "short": "BP" }
+  ],
+  "stations": [
+    {
+      "id": "issue-1",
+      "name": "Set up design system",
+      "lines": ["design-phase"],
+      "col": 0,
+      "row": 0,
+      "lp": "top",
+      "status": "done",
+      "desc": "No description yet.",
+      "owner": "Unassigned",
+      "role": "—",
+      "due": "—",
+      "est": "—",
+      "tags": []
+    },
+    {
+      "id": "issue-2",
+      "name": "Build component library",
+      "lines": ["design-phase"],
+      "col": 1,
+      "row": 0,
+      "lp": "top",
+      "status": "available",
+      "desc": "No description yet.",
+      "owner": "Unassigned",
+      "role": "—",
+      "due": "—",
+      "est": "—",
+      "tags": []
+    },
+    {
+      "id": "issue-3",
+      "name": "Ship the API",
+      "lines": ["build-phase"],
+      "col": 0,
+      "row": 1,
+      "lp": "top",
+      "status": "available",
+      "desc": "No description yet.",
+      "owner": "Unassigned",
+      "role": "—",
+      "due": "—",
+      "est": "—",
+      "tags": []
+    },
+    {
+      "id": "issue-4",
+      "name": "Wire up auth",
+      "lines": ["build-phase"],
+      "col": 1,
+      "row": 1,
+      "lp": "top",
+      "status": "available",
+      "desc": "No description yet.",
+      "owner": "Unassigned",
+      "role": "—",
+      "due": "—",
+      "est": "—",
+      "tags": []
+    }
+  ],
+  "edges": []
+}

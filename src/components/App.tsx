@@ -42,14 +42,14 @@ function AppInner() {
 }
 
 function AppRoot() {
-  const { index } = useMapRegistry();
+  const { index, reloadNonce } = useMapRegistry();
 
   if (index.activeMapId === null) {
     return <EmptyState />;
   }
 
   return (
-    <ProjectStoreProvider key={index.activeMapId} mapId={index.activeMapId}>
+    <ProjectStoreProvider key={`${index.activeMapId}:${reloadNonce}`} mapId={index.activeMapId}>
       <AppInner />
     </ProjectStoreProvider>
   );
