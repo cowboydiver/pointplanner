@@ -3,6 +3,7 @@ import type { MapData } from './maps';
 import { PLACEHOLDER_DESC, PLACEHOLDER_OWNER, PLACEHOLDER_DASH } from './placeholders';
 import { buildIndexes } from './indexes';
 import { recompute } from './dependencies';
+import { layoutStations, type LayoutNode } from './layout';
 
 // Plain-object shapes matching what `gh` returns (subset we rely on). The
 // generator script feeds these straight through; keep this module I/O-free so
@@ -141,7 +142,8 @@ function parseBodyDeps(body: string | null | undefined): number[] {
  *   and derived at render time.
  * - Closed issue → `done`; open issues are settled to `locked` / `available` by
  *   `recompute` over the dependency graph.
- * - Naive layout: col = index within its line; row = line band index.
+ * - Layout (`col`/`row`/`lp`) comes from the deterministic topological helper
+ *   `layoutStations`: col by dependency depth, row packed per line band.
  */
 export function githubToMap(input: GithubToMapInput): MapData {
   const { issues, milestones, repo, relationships = [] } = input;
@@ -214,11 +216,6 @@ export function githubToMap(input: GithubToMapInput): MapData {
     });
   }
 
-  // Row band per line id; track next free column within each band.
-  const rowByLineId = new Map<string, number>();
-  lines.forEach((l, i) => rowByLineId.set(l.id, i));
-  const nextColByLineId = new Map<string, number>();
-
   // Lazily materialize a Backlog line if an issue references an unknown
   // milestone and no Backlog line was created up front.
   function ensureBacklog(): string {
@@ -230,45 +227,27 @@ export function githubToMap(input: GithubToMapInput): MapData {
       color: LINE_COLORS[lines.length % LINE_COLORS.length],
       short: shortCode('Backlog', usedShorts),
     });
-    rowByLineId.set(backlogLineId, lines.length - 1);
     return backlogLineId;
   }
 
-  // ---- 4. Build stations, recording the issue-number → station mapping. ----
+  // ---- 4. Resolve each issue's station id + line (no coordinates yet). ----
   const usedStationIds = new Set<string>();
   const stationIdByNumber = new Map<number, string>();
   const lineIdByNumber = new Map<number, string>();
 
-  const stations: Station[] = includedIssues.map(iss => {
+  // Stable node order (issue order) feeds the deterministic layout.
+  const layoutNodes: LayoutNode[] = includedIssues.map(iss => {
     const lineId =
       (iss.milestone && lineIdByMilestone.get(iss.milestone.title)) || backlogLineId;
     // Defensive: an issue's milestone wasn't in the milestones list — fold it
     // into Backlog so we never produce a dangling line reference.
     const resolvedLineId = lineId ?? ensureBacklog();
 
-    const col = nextColByLineId.get(resolvedLineId) ?? 0;
-    nextColByLineId.set(resolvedLineId, col + 1);
-    const row = rowByLineId.get(resolvedLineId) ?? 0;
-
     const stationId = slugifyId('issue-' + iss.number, usedStationIds);
     stationIdByNumber.set(iss.number, stationId);
     lineIdByNumber.set(iss.number, resolvedLineId);
 
-    return {
-      id: stationId,
-      name: iss.title,
-      lines: [resolvedLineId],
-      col,
-      row,
-      lp: 'top',
-      status: isClosed(iss.state) ? 'done' : 'available',
-      desc: PLACEHOLDER_DESC,
-      owner: PLACEHOLDER_OWNER,
-      role: PLACEHOLDER_DASH,
-      due: PLACEHOLDER_DASH,
-      est: PLACEHOLDER_DASH,
-      tags: [],
-    };
+    return { id: stationId, lineId: resolvedLineId };
   });
 
   // ---- 5. Build edges. Colored by the downstream (`to`) station's line. ----
@@ -290,7 +269,36 @@ export function githubToMap(input: GithubToMapInput): MapData {
     edges.push({ from, to, line });
   }
 
-  // ---- 6. Settle open-station statuses via the existing cascade. ----
+  // ---- 6. Deterministic topological layout from the dependency graph. ----
+  // prereqs adjacency (`to -> [from...]`) straight from the edges we just built.
+  const layoutPrereqs: Record<string, string[]> = {};
+  for (const e of edges) {
+    (layoutPrereqs[e.to] = layoutPrereqs[e.to] || []).push(e.from);
+  }
+  const layout = layoutStations(layoutNodes, layoutPrereqs);
+
+  const stations: Station[] = includedIssues.map(iss => {
+    const stationId = stationIdByNumber.get(iss.number)!;
+    const lineId = lineIdByNumber.get(iss.number)!;
+    const { col, row, lp } = layout[stationId];
+    return {
+      id: stationId,
+      name: iss.title,
+      lines: [lineId],
+      col,
+      row,
+      lp,
+      status: isClosed(iss.state) ? 'done' : 'available',
+      desc: PLACEHOLDER_DESC,
+      owner: PLACEHOLDER_OWNER,
+      role: PLACEHOLDER_DASH,
+      due: PLACEHOLDER_DASH,
+      est: PLACEHOLDER_DASH,
+      tags: [],
+    };
+  });
+
+  // ---- 7. Settle open-station statuses via the existing cascade. ----
   const { prereqs } = buildIndexes(stations, lines, edges);
   const settledStations = recompute(stations, prereqs);
 
