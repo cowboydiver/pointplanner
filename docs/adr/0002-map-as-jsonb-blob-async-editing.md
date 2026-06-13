@@ -18,10 +18,12 @@ the whole `MapData`, plus `owner`, `version`, and `updated_at`. We do **not**
 normalize stations/lines/edges into separate tables.
 
 Editing is async with **debounced autosave** of the whole blob. Each save
-carries the `version` the client loaded; if the server's version is newer, the
-save is **rejected** and the User is told the Map changed and must reload
-(reloading discards their divergent local edits). There is **no real-time
-sync** — a shared Map reflects others' changes on reload/refocus, not live.
+carries the `version` the client loaded; a save only applies if that `version`
+still matches the row, and on success it **increments `version` and bumps
+`updated_at`**. If the server's version is newer the save is **rejected** and
+the User is told the Map changed and must reload (reloading discards their
+divergent local edits). There is **no real-time sync** — a shared Map reflects
+others' changes on reload/refocus, not live.
 
 ## Consequences
 

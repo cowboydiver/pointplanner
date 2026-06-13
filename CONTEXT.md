@@ -25,8 +25,8 @@ PointPlanner renders a project as a **subway transit map**: tasks are **stations
 
 | Term | Definition |
 |---|---|
-| **Map** | A whole transit-map document: one `project` (name + subtitle) plus its lines, stations and edges. The unit of saving, ownership and sharing. |
-| **User** | An authenticated person, identified by email. The actor that owns and is granted access to maps. |
+| **Map** | A whole transit-map document: one `project` (name + subtitle) plus its lines, stations and edges. The unit of saving, ownership and sharing |
+| **User** | An authenticated person, identified by email. The actor that owns and is granted access to maps |
 | **Owner** | The single User who created a map; the only one who can share it or delete it |
 | **Editor** | A User granted asynchronous edit access to a shared map — may change anything in it, but not re-share or delete it |
 | **Viewer** | A User granted read-only access to a shared map |

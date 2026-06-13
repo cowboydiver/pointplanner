@@ -15,7 +15,10 @@ persistent store, and a way to enforce who-can-see-what — none of which exist.
 
 Use **Supabase** (hosted Postgres + Auth + Row-Level Security) as the backend.
 Maps and shares are rows; the SPA talks to Supabase directly, with access
-enforced by RLS policies rather than a custom API server.
+enforced by RLS policies rather than a custom API server. Authentication is
+**magic-link / email OTP only** (no passwords, no OAuth providers in v1), so a
+**User** is identified by their email — which is also the key sharing is
+granted by.
 
 ## Considered options
 
