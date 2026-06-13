@@ -11,10 +11,16 @@ import { layoutStations, type LayoutNode } from './layout';
 export interface GitHubMilestone {
   title: string;
   number?: number;
+  /** ISO date string (`gh` exposes this as `dueOn`); used for a station's `due`. */
+  dueOn?: string | null;
 }
 
 export interface GitHubLabel {
   name: string;
+}
+
+export interface GitHubUser {
+  login: string;
 }
 
 export interface GitHubIssue {
@@ -24,6 +30,9 @@ export interface GitHubIssue {
   milestone?: GitHubMilestone | null;
   body?: string | null;
   labels?: GitHubLabel[];
+  assignees?: GitHubUser[];
+  /** Permalink to the issue (`gh` exposes this as `url`). */
+  url?: string | null;
 }
 
 export interface GitHubRepoInfo {
@@ -188,6 +197,48 @@ function parseBodyDeps(body: string | null | undefined): number[] {
   return out;
 }
 
+/** Max characters for a station description derived from an issue body. */
+const DESC_MAX_LEN = 280;
+
+/**
+ * Turn an issue body into a station `desc`: take the first non-empty paragraph,
+ * collapse internal whitespace, and truncate to ~280 chars (on a word boundary
+ * where possible, with an ellipsis). Empty/missing body → the placeholder.
+ */
+function bodyToDesc(body: string | null | undefined): string {
+  if (!body) return PLACEHOLDER_DESC;
+  // First paragraph = text up to the first blank line.
+  const firstPara = body.split(/\r?\n\s*\r?\n/)[0] ?? '';
+  const collapsed = firstPara.replace(/\s+/g, ' ').trim();
+  if (!collapsed) return PLACEHOLDER_DESC;
+  if (collapsed.length <= DESC_MAX_LEN) return collapsed;
+  const slice = collapsed.slice(0, DESC_MAX_LEN);
+  const lastSpace = slice.lastIndexOf(' ');
+  const trimmed = lastSpace > 0 ? slice.slice(0, lastSpace) : slice;
+  return trimmed.replace(/[\s.,;:]+$/, '') + '…';
+}
+
+/** True when a label marks an issue as in-progress (case-insensitive). */
+function isInProgressLabel(name: string): boolean {
+  const n = name.trim().toLowerCase();
+  return n === 'in-progress' || n === 'in progress' || n === 'wip';
+}
+
+/**
+ * Parse an estimate label like `est:3d` or `size:M` into its value (`'3d'`,
+ * `'M'`). Returns null for non-estimate labels. Case-insensitive on the prefix;
+ * the value is returned verbatim (trimmed).
+ */
+function parseEstimateLabel(name: string): string | null {
+  const m = name.trim().match(/^(?:est|size)\s*:\s*(.+)$/i);
+  return m ? m[1].trim() : null;
+}
+
+/** True when a label is consumed as a signal and so excluded from `tags`. */
+function isSignalLabel(name: string): boolean {
+  return isInProgressLabel(name) || parseEstimateLabel(name) !== null;
+}
+
 /**
  * Pure transform: plain GitHub issue/milestone objects → a valid `MapData`.
  *
@@ -279,6 +330,9 @@ export function githubToMapReport(input: GithubToMapInput): GithubToMapResult {
   const usedShorts = new Set<string>();
   const lines: Line[] = [];
   const lineIdByMilestone = new Map<string, string>();
+  // Milestone due dates keyed by title, so a station can inherit its `due`.
+  const dueByMilestone = new Map<string, string | null | undefined>();
+  milestones.forEach(m => dueByMilestone.set(m.title, m.dueOn));
 
   milestones.forEach((m, i) => {
     const id = slugifyId(m.title, usedLineIds);
@@ -368,6 +422,28 @@ export function githubToMapReport(input: GithubToMapInput): GithubToMapResult {
     const stationId = stationIdByNumber.get(iss.number)!;
     const lineId = lineIdByNumber.get(iss.number)!;
     const { col, row, lp } = layout[stationId];
+
+    const labels = iss.labels ?? [];
+    const closed = isClosed(iss.state);
+    // An OPEN issue carrying an in-progress signal label starts active; closed
+    // issues are `done`; everything else settles via the cascade below.
+    const inProgress = !closed && labels.some(l => isInProgressLabel(l.name));
+
+    // First estimate label (est:/size:) wins; otherwise the placeholder dash.
+    let est = PLACEHOLDER_DASH;
+    for (const l of labels) {
+      const parsed = parseEstimateLabel(l.name);
+      if (parsed) {
+        est = parsed;
+        break;
+      }
+    }
+
+    // Tags = labels minus those consumed as signals (status/estimate).
+    const tags = labels.map(l => l.name).filter(name => !isSignalLabel(name));
+
+    const due = iss.milestone ? dueByMilestone.get(iss.milestone.title) : null;
+
     return {
       id: stationId,
       name: iss.title,
@@ -375,17 +451,20 @@ export function githubToMapReport(input: GithubToMapInput): GithubToMapResult {
       col,
       row,
       lp,
-      status: isClosed(iss.state) ? 'done' : 'available',
-      desc: PLACEHOLDER_DESC,
-      owner: PLACEHOLDER_OWNER,
-      role: PLACEHOLDER_DASH,
-      due: PLACEHOLDER_DASH,
-      est: PLACEHOLDER_DASH,
-      tags: [],
+      status: closed ? 'done' : inProgress ? 'active' : 'available',
+      desc: bodyToDesc(iss.body),
+      owner: iss.assignees?.[0]?.login || PLACEHOLDER_OWNER,
+      role: '',
+      due: due || PLACEHOLDER_DASH,
+      est,
+      tags,
+      ...(iss.url ? { sourceUrl: iss.url } : {}),
     };
   });
 
   // ---- 7. Settle open-station statuses via the existing cascade. ----
+  // `recompute` leaves `done` and `active` stations untouched, so issues marked
+  // active above survive the cascade; only locked/available stations move.
   const { prereqs } = buildIndexes(stations, lines, edges);
   const settledStations = recompute(stations, prereqs);
 

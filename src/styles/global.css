@@ -221,6 +221,9 @@ body.hide-labels .label { display: none; }
 .m-v .role { color: var(--ink-faint); font-weight: 500; }
 .p-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 14px; }
 .tag { font-size: 11.5px; font-weight: 600; color: var(--ink-soft); background: #f3f1ea; padding: 4px 10px; border-radius: 7px; }
+.p-source { margin-top: 14px; }
+.p-source-link { font-size: 13px; font-weight: 600; color: var(--ink-soft); text-decoration: none; border-bottom: 1px solid var(--hair); padding-bottom: 1px; }
+.p-source-link:hover { color: var(--ink); border-bottom-color: var(--ink-faint); }
 .p-sec { margin-top: 20px; }
 .p-sec-h { font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-faint); margin-bottom: 9px; }
 .p-none { font-size: 13px; color: var(--ink-faint); font-style: italic; }

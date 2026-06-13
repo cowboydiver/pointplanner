@@ -22,6 +22,8 @@ export interface Station {
   due: string;
   est: string;
   tags: string[];
+  /** Optional link back to the source (e.g. a GitHub issue's HTML URL). */
+  sourceUrl?: string;
 }
 
 export interface Edge {

@@ -266,4 +266,109 @@ describe('githubToMap', () => {
     const scoped = scopeInputByFilter({ issues: labelled, milestones: [] }, 'high-priority');
     expect(scoped.issues.map(i => i.number)).toEqual([1]);
   });
+
+  // ---- Issue #8: rich station metadata + link back to issue ----
+
+  it('derives desc from the first paragraph of the body, collapsing whitespace', () => {
+    const issue: GitHubIssue = {
+      ...open(1, 'Has body'),
+      body: 'First   paragraph\nwith a line break.\n\nSecond paragraph ignored.',
+    };
+    const map = githubToMap({ issues: [issue], milestones: [] });
+    const s = map.stations.find(s => s.id === 'issue-1')!;
+    expect(s.desc).toBe('First paragraph with a line break.');
+  });
+
+  it('truncates a long body to ~280 chars on a word boundary with an ellipsis', () => {
+    const longBody = 'word '.repeat(100).trim(); // 500 chars, single paragraph
+    const map = githubToMap({ issues: [{ ...open(1, 'Long'), body: longBody }], milestones: [] });
+    const s = map.stations.find(s => s.id === 'issue-1')!;
+    expect(s.desc.length).toBeLessThanOrEqual(281); // 280 + ellipsis
+    expect(s.desc.endsWith('…')).toBe(true);
+    expect(s.desc).not.toContain('  ');
+  });
+
+  it('falls back to the placeholder desc when the body is empty', () => {
+    const map = githubToMap({ issues: [{ ...open(1, 'Empty'), body: '   ' }], milestones: [] });
+    const s = map.stations.find(s => s.id === 'issue-1')!;
+    expect(s.desc).toBe('No description yet.');
+  });
+
+  it('maps the first assignee login to owner, role is blank, else placeholder owner', () => {
+    const assigned: GitHubIssue = {
+      ...open(1, 'Assigned'),
+      assignees: [{ login: 'octocat' }, { login: 'someone-else' }],
+    };
+    const unassigned: GitHubIssue = { ...open(2, 'Unassigned') };
+    const map = githubToMap({ issues: [assigned, unassigned], milestones: [] });
+    const s1 = map.stations.find(s => s.id === 'issue-1')!;
+    const s2 = map.stations.find(s => s.id === 'issue-2')!;
+    expect(s1.owner).toBe('octocat');
+    expect(s1.role).toBe('');
+    expect(s2.owner).toBe('Unassigned');
+  });
+
+  it('maps the milestone due date to due, else a placeholder dash', () => {
+    const ms: GitHubMilestone[] = [{ title: 'Phase 1', number: 1, dueOn: '2026-08-01T00:00:00Z' }];
+    const withMs: GitHubIssue = { ...open(1, 'Dated'), milestone: ms[0] };
+    const noMs: GitHubIssue = { ...open(2, 'Undated') };
+    const map = githubToMap({ issues: [withMs, noMs], milestones: ms });
+    const s1 = map.stations.find(s => s.id === 'issue-1')!;
+    const s2 = map.stations.find(s => s.id === 'issue-2')!;
+    expect(s1.due).toBe('2026-08-01T00:00:00Z');
+    expect(s2.due).toBe('—');
+  });
+
+  it('parses an estimate label (est: / size:) into est, else placeholder dash', () => {
+    const estIssue: GitHubIssue = { ...open(1, 'Estimated'), labels: [{ name: 'est:3d' }] };
+    const sizeIssue: GitHubIssue = { ...open(2, 'Sized'), labels: [{ name: 'size:M' }] };
+    const noEst: GitHubIssue = { ...open(3, 'No estimate'), labels: [{ name: 'bug' }] };
+    const map = githubToMap({ issues: [estIssue, sizeIssue, noEst], milestones: [] });
+    expect(map.stations.find(s => s.id === 'issue-1')!.est).toBe('3d');
+    expect(map.stations.find(s => s.id === 'issue-2')!.est).toBe('M');
+    expect(map.stations.find(s => s.id === 'issue-3')!.est).toBe('—');
+  });
+
+  it('maps labels to tags, excluding signal labels (status + estimate)', () => {
+    const issue: GitHubIssue = {
+      ...open(1, 'Tagged'),
+      labels: [
+        { name: 'frontend' },
+        { name: 'in-progress' },
+        { name: 'est:2d' },
+        { name: 'size:L' },
+        { name: 'bug' },
+      ],
+    };
+    const map = githubToMap({ issues: [issue], milestones: [] });
+    const s = map.stations.find(s => s.id === 'issue-1')!;
+    expect(s.tags).toEqual(['frontend', 'bug']);
+  });
+
+  it('marks an open issue with an in-progress / wip label as active, surviving recompute', () => {
+    // #1 (active, in-progress) → #2 (wip) depends on it. Both must stay active
+    // even though #1 is not done (which would otherwise lock #2).
+    const a: GitHubIssue = { ...open(1, 'Doing'), labels: [{ name: 'In Progress' }] };
+    const b: GitHubIssue = {
+      ...open(2, 'Also doing'),
+      labels: [{ name: 'wip' }],
+      body: 'Depends on #1',
+    };
+    const map = githubToMap({ issues: [a, b], milestones: [] });
+    expect(map.stations.find(s => s.id === 'issue-1')!.status).toBe('active');
+    expect(map.stations.find(s => s.id === 'issue-2')!.status).toBe('active');
+  });
+
+  it('populates sourceUrl from the issue url, and omits it when absent', () => {
+    const withUrl: GitHubIssue = {
+      ...open(1, 'Linked'),
+      url: 'https://github.com/cowboydiver/pointplanner/issues/1',
+    };
+    const noUrl: GitHubIssue = { ...open(2, 'Unlinked') };
+    const map = githubToMap({ issues: [withUrl, noUrl], milestones: [] });
+    expect(map.stations.find(s => s.id === 'issue-1')!.sourceUrl).toBe(
+      'https://github.com/cowboydiver/pointplanner/issues/1',
+    );
+    expect(map.stations.find(s => s.id === 'issue-2')!.sourceUrl).toBeUndefined();
+  });
 });

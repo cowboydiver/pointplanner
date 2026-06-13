@@ -58,7 +58,7 @@ function fetchIssues(): GitHubIssue[] {
     '--limit',
     '1000',
     '--json',
-    'number,title,state,milestone,body,labels',
+    'number,title,state,milestone,body,labels,assignees,url',
   ]);
   return JSON.parse(out) as GitHubIssue[];
 }
@@ -169,7 +169,7 @@ function fetchMilestones(): GitHubMilestone[] {
     'api',
     'repos/{owner}/{repo}/milestones?state=all&per_page=100',
     '--jq',
-    '[.[] | { title: .title, number: .number }]',
+    '[.[] | { title: .title, number: .number, dueOn: .due_on }]',
   ]);
   return JSON.parse(out) as GitHubMilestone[];
 }
