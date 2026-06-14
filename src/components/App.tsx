@@ -43,7 +43,11 @@ function AppInner() {
 }
 
 function AppRoot() {
-  const { index, reloadNonce } = useMapRegistry();
+  const { index, loading, reloadNonce } = useMapRegistry();
+
+  // While the registry is fetching the map list (and seeding if needed), render
+  // nothing to avoid a blank canvas flash.
+  if (loading) return null;
 
   if (index.activeMapId === null) {
     return <EmptyState />;
