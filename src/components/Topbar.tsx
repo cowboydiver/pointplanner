@@ -1,8 +1,10 @@
 import { useStore } from '../store/projectStore';
+import { useAuth } from '../store/auth';
 import { MapSwitcher } from './MapSwitcher';
 
 export function Topbar() {
   const { state, dispatch } = useStore();
+  const { signOut } = useAuth();
 
   return (
     <header className="topbar">
@@ -28,6 +30,9 @@ export function Topbar() {
         onClick={() => dispatch({ type: 'OPEN_MODAL' })}
       >
         + Add task
+      </button>
+      <button className="tb-btn" type="button" onClick={() => void signOut()}>
+        Sign out
       </button>
     </header>
   );

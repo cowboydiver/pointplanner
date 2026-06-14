@@ -7,6 +7,8 @@ import { TransitMap } from './TransitMap';
 import { DetailPanel } from './DetailPanel';
 import { CreateModal } from './CreateModal';
 import { EmptyState } from './EmptyState';
+import { AuthProvider, useAuth } from '../store/auth';
+import { SignIn } from './SignIn';
 
 function AppInner() {
   const { state, dispatch } = useStore();
@@ -55,10 +57,28 @@ function AppRoot() {
   );
 }
 
-export function App() {
+function AuthGate() {
+  const { status } = useAuth();
+
+  if (status === 'loading') {
+    return <div className="auth-loading">Loading…</div>;
+  }
+
+  if (status === 'signed-out') {
+    return <SignIn />;
+  }
+
   return (
     <MapRegistryProvider>
       <AppRoot />
     </MapRegistryProvider>
+  );
+}
+
+export function App() {
+  return (
+    <AuthProvider>
+      <AuthGate />
+    </AuthProvider>
   );
 }
