@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { ProjectStoreProvider, useStore } from '../store/projectStore';
 import { MapRegistryProvider, useMapRegistry } from '../store/mapRegistry';
+import { AuthProvider } from '../auth/AuthProvider';
 import { Topbar } from './Topbar';
 import { Legend } from './Legend';
 import { TransitMap } from './TransitMap';
@@ -57,8 +58,10 @@ function AppRoot() {
 
 export function App() {
   return (
-    <MapRegistryProvider>
-      <AppRoot />
-    </MapRegistryProvider>
+    <AuthProvider>
+      <MapRegistryProvider>
+        <AppRoot />
+      </MapRegistryProvider>
+    </AuthProvider>
   );
 }

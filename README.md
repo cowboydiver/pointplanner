@@ -22,6 +22,23 @@ npm install
 npm run dev      # start the dev server
 ```
 
+## Configuration / Supabase
+
+PointPlanner uses [Supabase](https://supabase.com) for authentication (magic-link / OTP email sign-in).
+
+1. Create a free Supabase project at <https://supabase.com>.
+2. In your project, go to **Project Settings → API** and copy the **Project URL** and **anon public** key.
+3. Create a `.env.local` file in the repo root (this file is git-ignored — never commit it):
+
+```
+VITE_SUPABASE_URL=https://your-project-id.supabase.co
+VITE_SUPABASE_ANON_KEY=your-anon-key-here
+```
+
+See `.env.example` for a template.
+
+If these variables are not set, the app shows a configuration notice on the sign-in screen and authentication is disabled.
+
 ## Scripts
 
 | Command | Description |

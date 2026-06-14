@@ -25,3 +25,8 @@ dist-ssr
 
 # Transient agent worktrees
 .claude/worktrees/
+
+# Environment variables — never commit real secrets
+.env
+.env.local
+.env.*.local
