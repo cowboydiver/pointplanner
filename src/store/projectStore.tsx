@@ -2,6 +2,7 @@ import React, { createContext, useContext, useReducer, useMemo, useEffect, useRe
 import { buildIndexes, type Indexes } from '../lib/indexes';
 import { createSeedMapData } from '../lib/maps';
 import { loadMap, saveMap } from '../lib/mapsRepo';
+import { useMapRegistry } from './mapRegistry';
 import { reducer, type StoreState, type PersistedState, type Action } from './reducer';
 
 // Re-export the store's public types so existing imports from this module keep working.
@@ -82,25 +83,32 @@ function LoadedStore({
   };
 
   const [state, dispatch] = useReducer(reducer, initialState);
+  const { reloadActiveMap } = useMapRegistry();
 
-  // Current cloud version of this map. #18 will send it on save to detect stale
-  // writes; for now it just tracks the last successful version.
+  // Current cloud version of this map. Sent on every save so the server can
+  // reject stale writes (#18); updated to the new version on each success.
   const versionRef = useRef(initialVersion);
+
+  // Set true once a save is rejected because the server moved on. While stale,
+  // autosave halts and a "map changed — reload" banner is shown.
+  const [stale, setStale] = useState(false);
 
   const indexes = useMemo(
     () => buildIndexes(state.stations, state.lines, state.edges),
     [state.stations, state.lines, state.edges]
   );
 
-  // Debounced autosave of the whole blob to the map's row. Last-writer-wins for
-  // now (no stale guard — that's #18). Skips the very first run so loading a map
-  // doesn't immediately re-save it.
+  // Debounced autosave of the whole blob to the map's row. Each save sends the
+  // loaded version so the server can reject stale writes (#18). Skips the very
+  // first run so loading a map doesn't immediately re-save it. Once `stale`,
+  // autosave halts entirely — retrying is doomed until the user reloads.
   const firstRun = useRef(true);
   useEffect(() => {
     if (firstRun.current) {
       firstRun.current = false;
       return;
     }
+    if (stale) return;
     const snapshot: PersistedState = {
       project: state.project,
       lines: state.lines,
@@ -112,14 +120,18 @@ function LoadedStore({
         const result = await saveMap(mapId, snapshot, versionRef.current);
         if (result.ok && typeof result.version === 'number') {
           versionRef.current = result.version;
+        } else if (result.reason === 'stale') {
+          // Someone else saved since we loaded. Stop autosaving and surface the
+          // reload prompt; we must not clobber the newer server state.
+          setStale(true);
         } else {
-          // No stale handling yet (#18) — just log.
+          // Transient error — leave the version untouched so the next edit retries.
           console.error('Failed to save map', result.message);
         }
       })();
     }, AUTOSAVE_DEBOUNCE_MS);
     return () => clearTimeout(handle);
-  }, [mapId, state.project, state.lines, state.stations, state.edges]);
+  }, [mapId, stale, state.project, state.lines, state.stations, state.edges]);
 
   // Apply theme to body
   useEffect(() => {
@@ -128,6 +140,14 @@ function LoadedStore({
 
   return (
     <StoreContext.Provider value={{ state, indexes, dispatch }}>
+      {stale && (
+        <div className="stale-banner" role="alert">
+          <span className="stale-banner-msg">Someone changed this map — reload to continue.</span>
+          <button type="button" className="stale-btn primary" onClick={reloadActiveMap}>
+            Reload
+          </button>
+        </div>
+      )}
       {children}
     </StoreContext.Provider>
   );

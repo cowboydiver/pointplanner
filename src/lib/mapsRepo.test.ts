@@ -70,8 +70,9 @@ describe('createMap', () => {
 });
 
 describe('saveMap', () => {
-  it('writes version = baseVersion + 1 and returns the new version', async () => {
-    const builder = makeBuilder({ data: null, error: null });
+  it('writes version = baseVersion + 1, guards on the loaded version, and returns the new version', async () => {
+    // Conditional update matches the row (one row returned) → success.
+    const builder = makeBuilder({ data: [{ version: 4 }], error: null });
     fromMock.mockReturnValue(builder);
     const data = createBlankMapData('Y');
     const result = await saveMap('m1', data, 3);
@@ -79,6 +80,16 @@ describe('saveMap', () => {
     expect(builder.update).toHaveBeenCalledWith(
       expect.objectContaining({ data, version: 4 }),
     );
+    // The optimistic-concurrency guard: the save is conditioned on version === base.
+    expect(builder.eq).toHaveBeenCalledWith('version', 3);
+  });
+
+  it('returns { ok: false, reason: "stale" } when the conditional update matches no rows', async () => {
+    // Server moved on → the .eq('version', base) guard matches nothing.
+    const builder = makeBuilder({ data: [], error: null });
+    fromMock.mockReturnValue(builder);
+    const result = await saveMap('m1', createBlankMapData('Y'), 1);
+    expect(result).toEqual({ ok: false, reason: 'stale' });
   });
 
   it('returns an error result (not a throw) when the update fails', async () => {
@@ -87,6 +98,25 @@ describe('saveMap', () => {
     expect(result.ok).toBe(false);
     expect(result.reason).toBe('error');
     expect(result.message).toBe('denied');
+  });
+
+  it('two clients with diverging versions: the second save is rejected as stale', async () => {
+    const data = createBlankMapData('Shared');
+
+    // Client A loaded v1 and saves. The row still matches → success, server is now v2.
+    const builderA = makeBuilder({ data: [{ version: 2 }], error: null });
+    fromMock.mockReturnValue(builderA);
+    const resultA = await saveMap('shared', data, 1);
+    expect(resultA).toEqual({ ok: true, version: 2 });
+    expect(builderA.eq).toHaveBeenCalledWith('version', 1);
+
+    // Client B is still on v1 and saves. The server is now v2, so the
+    // .eq('version', 1) guard matches no rows → stale (B's write is not applied).
+    const builderB = makeBuilder({ data: [], error: null });
+    fromMock.mockReturnValue(builderB);
+    const resultB = await saveMap('shared', data, 1);
+    expect(resultB).toEqual({ ok: false, reason: 'stale' });
+    expect(builderB.eq).toHaveBeenCalledWith('version', 1);
   });
 });
 

@@ -52,6 +52,25 @@ body {
 .topbar .tb-btn.primary { background: var(--ink); color: #fff; border-color: var(--ink); }
 .topbar .pill { font-size: 12px; color: var(--ink-soft); border: 1px solid var(--hair); padding: 5px 11px; border-radius: 999px; font-weight: 600; }
 
+/* ===== stale-write banner (#18) ===== */
+.stale-banner {
+  display: flex; align-items: center; gap: 14px;
+  padding: 11px 18px;
+  background: #fbeae5; border-bottom: 1px solid #e7b3a6; color: #7a2415;
+  font-weight: 600; font-size: 13px;
+}
+.stale-banner-msg { flex: 1; }
+.stale-btn {
+  border: 1px solid var(--hair); background: #fff; color: var(--ink);
+  font: inherit; font-weight: 600; font-size: 13px;
+  padding: 7px 13px; border-radius: 9px; cursor: pointer;
+}
+.stale-btn:hover { background: #faf9f5; }
+.stale-btn.primary { background: var(--ink); color: #fff; border-color: var(--ink); }
+body[data-theme="dark"] .stale-banner { background: #3a201a; border-bottom-color: #5a2c22; color: #f3c9bd; }
+body[data-theme="dark"] .stale-btn { background: #232730; border-color: #2a2e38; color: var(--ink); }
+body[data-theme="dark"] .stale-btn.primary { background: #f1f0ea; color: #14161c; }
+
 .body { flex: 1; display: flex; min-height: 0; position: relative; }
 
 /* ===== left legend ===== */

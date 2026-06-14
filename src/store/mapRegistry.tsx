@@ -10,10 +10,11 @@ interface MapRegistryContextValue {
   activeMeta: MapMeta | null;
   // True while the initial owned-map list is being fetched/seeded.
   loading: boolean;
-  // Bumped to force the active map's store provider to remount. Retained for
-  // API compatibility with App.tsx; cloud reimport is a no-op (see below) so it
-  // is effectively constant in this slice.
+  // Bumped to force the active map's store provider to remount, which re-runs
+  // loadMap against current server state (#18 stale-write reload).
   reloadNonce: number;
+  // Reload the active map from the server, discarding divergent local edits.
+  reloadActiveMap: () => void;
   createMap: (name: string) => void;
   selectMap: (id: string) => void;
   renameMapById: (id: string, name: string) => void;
@@ -30,9 +31,9 @@ const MapRegistryContext = createContext<MapRegistryContextValue | null>(null);
 export function MapRegistryProvider({ children }: { children: React.ReactNode }) {
   const [index, setIndex] = useState<MapIndex>({ activeMapId: null, maps: [] });
   const [loading, setLoading] = useState(true);
-  // Cloud maps don't use the localStorage reimport/remount mechanism, but
-  // App.tsx still keys the store provider on it; keep it stable.
-  const [reloadNonce] = useState(0);
+  // App.tsx keys the store provider on this; bumping it remounts the provider,
+  // which re-fetches current server state (used by the stale-write reload, #18).
+  const [reloadNonce, setReloadNonce] = useState(0);
 
   // Bootstrap: fetch the user's owned maps. If they have none, seed the demo
   // map. The user is guaranteed signed in here — this provider lives inside the
@@ -152,11 +153,16 @@ export function MapRegistryProvider({ children }: { children: React.ReactNode })
     // no-op for cloud maps (see comment above)
   }
 
+  function reloadActiveMap(): void {
+    setReloadNonce(n => n + 1);
+  }
+
   const value: MapRegistryContextValue = {
     index,
     activeMeta,
     loading,
     reloadNonce,
+    reloadActiveMap,
     createMap,
     selectMap,
     renameMapById,

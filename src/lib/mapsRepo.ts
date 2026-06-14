@@ -82,8 +82,12 @@ export async function duplicateMap(id: string): Promise<MapMeta> {
 }
 
 /**
- * #16: plain last-writer-wins update (no version guard yet — that conditional
- * check is added in #18). Bumps `version` to `baseVersion + 1` and `updated_at`.
+ * #18: conditional (optimistic-concurrency) update. The write only applies when
+ * the row's `version` still equals `baseVersion` — i.e. nobody else saved since
+ * this client loaded. On success `version` bumps to `baseVersion + 1` and
+ * `updated_at` refreshes. If the server moved on, no row matches the guard and
+ * we report `{ ok: false, reason: 'stale' }` without overwriting the newer
+ * state. (Replaces the earlier last-writer-wins behaviour.)
  */
 export async function saveMap(
   id: string,
@@ -91,11 +95,14 @@ export async function saveMap(
   baseVersion: number,
 ): Promise<SaveResult> {
   const nextVersion = baseVersion + 1;
-  const { error } = await supabase
+  const { data: rows, error } = await supabase
     .from(TABLE)
     .update({ data, version: nextVersion, updated_at: new Date().toISOString() })
-    .eq('id', id);
+    .eq('id', id)
+    .eq('version', baseVersion)
+    .select('version');
 
   if (error) return { ok: false, reason: 'error', message: error.message };
+  if (!rows || (rows as unknown[]).length === 0) return { ok: false, reason: 'stale' };
   return { ok: true, version: nextVersion };
 }
