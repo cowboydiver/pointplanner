@@ -9,6 +9,7 @@ import { CreateModal } from './CreateModal';
 import { EmptyState } from './EmptyState';
 import { AuthProvider, useAuth } from '../store/auth';
 import { SignIn } from './SignIn';
+import { ImportPrompt } from './ImportPrompt';
 
 function AppInner() {
   const { state, dispatch } = useStore();
@@ -74,6 +75,7 @@ function AuthGate() {
 
   return (
     <MapRegistryProvider>
+      <ImportPrompt />
       <AppRoot />
     </MapRegistryProvider>
   );

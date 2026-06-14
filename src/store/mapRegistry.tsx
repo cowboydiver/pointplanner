@@ -22,6 +22,9 @@ interface MapRegistryContextValue {
   reloadNonce: number;
   // Reload the active map from the server, discarding divergent local edits.
   reloadActiveMap: () => void;
+  // Re-fetch the owned/shared map list (e.g. after a one-time local import, #17),
+  // keeping the active map if it still exists else choosing the first.
+  refreshMaps: () => Promise<void>;
   createMap: (name: string) => void;
   selectMap: (id: string) => void;
   renameMapById: (id: string, name: string) => void;
@@ -166,12 +169,28 @@ export function MapRegistryProvider({ children }: { children: React.ReactNode })
     setReloadNonce(n => n + 1);
   }
 
+  async function refreshMaps(): Promise<void> {
+    try {
+      const maps = await repo.listMaps();
+      setIndex(prev => {
+        const keep = prev.activeMapId && maps.some(m => m.id === prev.activeMapId);
+        const activeMapId = keep
+          ? prev.activeMapId
+          : (maps[0]?.id ?? null);
+        return { activeMapId, maps };
+      });
+    } catch (err) {
+      console.error('Failed to refresh maps', err);
+    }
+  }
+
   const value: MapRegistryContextValue = {
     index,
     activeMeta,
     loading,
     reloadNonce,
     reloadActiveMap,
+    refreshMaps,
     createMap,
     selectMap,
     renameMapById,
