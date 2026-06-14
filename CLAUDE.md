@@ -40,6 +40,16 @@ seed data (src/data/seed.ts)
 
 Grid constants (do not change without updating tests): `PAD_X=96, COL=152, PAD_Y=92, ROW=94, CORNER_RADIUS=18`.
 
+The files listed above are pure (no React, no I/O). `src/lib/` also holds a small number of **data-access adapters** that *do* perform I/O and are intentionally not pure — they are the one exception to the "pure logic" rule:
+
+| File | What it does |
+|---|---|
+| `supabase.ts` | The single `supabase-js` client (reads `VITE_SUPABASE_*` env) + `isSupabaseConfigured()` |
+| `mapsRepo.ts` | Cloud data-access layer over Supabase (maps + shares CRUD, role resolution, version-guarded saves) |
+| `localImport.ts` | Pure `localStorage` detection helpers for the one-time #17 import (these *are* pure — take a `Storage` double) |
+
+Adapters keep all Supabase I/O behind a typed module surface so the React layer and tests never touch the client directly; their unit tests mock the client.
+
 ### Store actions
 
 `DO_ACTION(id, 'start'|'done'|'reopen')` mutates a single station's status then runs `recompute` over the whole graph. `CREATE_TASK` calls `placeNewStation`, builds new edges with `df=true` if the prereq is on a different row, pushes the station, then recomputes.

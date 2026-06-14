@@ -86,6 +86,14 @@ export function detectLocalMaps(storage: Pick<Storage, 'getItem'>): LocalMap[] {
  * Per-account "import handled" flag key. Also per-device, since localStorage is
  * per-browser. Namespaced by user id so two accounts on the same browser are
  * independent.
+ *
+ * Known limitation (accepted): because the flag lives in localStorage, the dedup
+ * is per-device. A user who signs in on a *second* browser that still holds old
+ * pre-#16 local maps would be prompted again there, and accepting would create
+ * cloud duplicates of maps already imported elsewhere — `detectLocalMaps` does
+ * not reconcile against existing cloud maps. This only affects the narrow set of
+ * devices that ran the old localStorage build, so we accept it rather than add a
+ * server-side import marker or content-based dedup.
  */
 export function importDoneKey(userId: string): string {
   return IMPORTED_KEY_PREFIX + userId;
