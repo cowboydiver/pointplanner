@@ -274,6 +274,7 @@ body.hide-labels .label { display: none; }
 .pre-name { flex: 1; font-weight: 600; }
 .pre-state { font-size: 11.5px; color: var(--ink-faint); font-weight: 600; }
 .p-actions { margin-top: 24px; display: flex; flex-direction: column; gap: 10px; }
+.p-readonly-note { margin-top: 24px; font-size: 13px; color: var(--ink-faint); font-style: italic; }
 .act { width: 100%; border: none; font: inherit; font-weight: 700; font-size: 14.5px; padding: 13px; border-radius: 11px; cursor: pointer; background: var(--ink); color: #fff; transition: transform .1s, background .15s; }
 .act:hover { transform: translateY(-1px); }
 .act:active { transform: translateY(0); }
@@ -398,7 +399,12 @@ body[data-theme="dark"] .btn-primary { background: #f1f0ea; color: #14161c; }
   font-size: 13px; font-weight: 600; color: var(--ink);
 }
 .map-menu-check { color: var(--ink); font-size: 11px; flex: 0 0 auto; }
-.map-menu-item-label { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.map-menu-item-label { flex: 0 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.map-menu-shared-badge {
+  flex: 0 0 auto; font-size: 10px; font-weight: 700; letter-spacing: .03em;
+  color: var(--ink-faint); background: var(--paper-grid, #f1eee5);
+  border: 1px solid var(--hair); padding: 1px 7px; border-radius: 999px;
+}
 .map-menu-item-actions {
   display: flex; align-items: center; gap: 2px;
   padding-right: 6px; opacity: 0; transition: opacity .12s;

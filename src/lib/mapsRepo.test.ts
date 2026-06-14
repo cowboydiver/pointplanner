@@ -6,7 +6,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 // enough of the supabase-js query API for mapsRepo's calls.
 function makeBuilder(result: { data: unknown; error: unknown }) {
   const builder: Record<string, unknown> = {};
-  for (const m of ['select', 'insert', 'update', 'delete', 'eq', 'order']) {
+  for (const m of ['select', 'insert', 'update', 'delete', 'upsert', 'eq', 'order']) {
     builder[m] = vi.fn(() => builder);
   }
   builder.single = vi.fn(() => Promise.resolve(result));
@@ -17,43 +17,96 @@ function makeBuilder(result: { data: unknown; error: unknown }) {
 }
 
 const fromMock = vi.fn();
+const getUserMock = vi.fn();
 
 vi.mock('./supabase', () => ({
-  supabase: { from: (...args: unknown[]) => fromMock(...args) },
+  supabase: {
+    from: (...args: unknown[]) => fromMock(...args),
+    auth: { getUser: (...args: unknown[]) => getUserMock(...args) },
+  },
 }));
 
-import { listMaps, loadMap, createMap, saveMap, renameMap } from './mapsRepo';
+import {
+  listMaps,
+  loadMap,
+  createMap,
+  saveMap,
+  renameMap,
+  listShares,
+  addShare,
+  removeShare,
+} from './mapsRepo';
 import { createBlankMapData } from './maps';
+
+// Default identity helper: the signed-in user.
+function signInAs(id: string, email: string) {
+  getUserMock.mockResolvedValue({ data: { user: { id, email } }, error: null });
+}
+
+// Route `supabase.from(table)` to a per-table builder so tests that touch both
+// `maps` and `map_shares` (role resolution) can configure each independently.
+function routeFrom(builders: Record<string, ReturnType<typeof makeBuilder>>) {
+  fromMock.mockImplementation((table: string) => {
+    const b = builders[table];
+    if (!b) throw new Error('unexpected table: ' + table);
+    return b;
+  });
+}
 
 beforeEach(() => {
   fromMock.mockReset();
+  getUserMock.mockReset();
+  signInAs('me', 'me@example.com');
 });
 
 describe('listMaps', () => {
-  it('maps owned rows to MapMeta', async () => {
-    fromMock.mockReturnValue(
-      makeBuilder({ data: [{ id: 'a', name: 'Alpha' }, { id: 'b', name: 'Beta' }], error: null }),
-    );
+  it('labels owned rows owner and shared rows by their share role', async () => {
+    routeFrom({
+      maps: makeBuilder({
+        data: [
+          { id: 'a', name: 'Alpha', owner: 'me' },
+          { id: 'b', name: 'Beta', owner: 'someone-else' },
+        ],
+        error: null,
+      }),
+      map_shares: makeBuilder({ data: [{ map_id: 'b', role: 'viewer' }], error: null }),
+    });
+
     const metas = await listMaps();
-    expect(metas).toEqual([{ id: 'a', name: 'Alpha' }, { id: 'b', name: 'Beta' }]);
+    expect(metas).toEqual([
+      { id: 'a', name: 'Alpha', role: 'owner' },
+      { id: 'b', name: 'Beta', role: 'viewer' },
+    ]);
   });
 
   it('throws on error', async () => {
-    fromMock.mockReturnValue(makeBuilder({ data: null, error: { message: 'boom' } }));
+    routeFrom({ maps: makeBuilder({ data: null, error: { message: 'boom' } }) });
     await expect(listMaps()).rejects.toBeTruthy();
   });
 });
 
 describe('loadMap', () => {
-  it('returns a MapRecord', async () => {
+  it('returns role "owner" when the row owner is the current user', async () => {
     const data = createBlankMapData('X');
-    fromMock.mockReturnValue(makeBuilder({ data: { id: 'm1', name: 'X', data, version: 7 }, error: null }));
+    routeFrom({
+      maps: makeBuilder({ data: { id: 'm1', name: 'X', data, version: 7, owner: 'me' }, error: null }),
+    });
     const rec = await loadMap('m1');
-    expect(rec).toEqual({ id: 'm1', name: 'X', data, version: 7 });
+    expect(rec).toEqual({ id: 'm1', name: 'X', data, version: 7, role: 'owner' });
+  });
+
+  it('returns role "viewer" when not the owner but a viewer share exists', async () => {
+    const data = createBlankMapData('X');
+    routeFrom({
+      maps: makeBuilder({ data: { id: 'm1', name: 'X', data, version: 7, owner: 'other' }, error: null }),
+      map_shares: makeBuilder({ data: [{ map_id: 'm1', role: 'viewer' }], error: null }),
+    });
+    const rec = await loadMap('m1');
+    expect(rec).toEqual({ id: 'm1', name: 'X', data, version: 7, role: 'viewer' });
   });
 
   it('returns null when the row is missing', async () => {
-    fromMock.mockReturnValue(makeBuilder({ data: null, error: null }));
+    routeFrom({ maps: makeBuilder({ data: null, error: null }) });
     expect(await loadMap('nope')).toBeNull();
   });
 });
@@ -128,5 +181,43 @@ describe('renameMap', () => {
     expect(builder.update).toHaveBeenCalledWith(
       expect.objectContaining({ name: 'Renamed' }),
     );
+  });
+});
+
+describe('sharing', () => {
+  it('listShares maps rows to ShareEntry[]', async () => {
+    const builder = makeBuilder({
+      data: [
+        { email: 'a@x.com', role: 'viewer' },
+        { email: 'b@x.com', role: 'editor' },
+      ],
+      error: null,
+    });
+    fromMock.mockReturnValue(builder);
+    const shares = await listShares('m1');
+    expect(shares).toEqual([
+      { email: 'a@x.com', role: 'viewer' },
+      { email: 'b@x.com', role: 'editor' },
+    ]);
+    expect(builder.eq).toHaveBeenCalledWith('map_id', 'm1');
+  });
+
+  it('addShare lowercases the email before writing', async () => {
+    const builder = makeBuilder({ data: null, error: null });
+    fromMock.mockReturnValue(builder);
+    await addShare('m1', '  Person@Example.COM ', 'viewer');
+    expect(builder.upsert).toHaveBeenCalledWith(
+      { map_id: 'm1', email: 'person@example.com', role: 'viewer' },
+      { onConflict: 'map_id,email' },
+    );
+  });
+
+  it('removeShare deletes by map_id + lowercased email', async () => {
+    const builder = makeBuilder({ data: null, error: null });
+    fromMock.mockReturnValue(builder);
+    await removeShare('m1', 'Person@Example.COM');
+    expect(builder.delete).toHaveBeenCalled();
+    expect(builder.eq).toHaveBeenCalledWith('map_id', 'm1');
+    expect(builder.eq).toHaveBeenCalledWith('email', 'person@example.com');
   });
 });

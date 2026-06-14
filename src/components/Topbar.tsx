@@ -1,10 +1,17 @@
+import { useState } from 'react';
 import { useStore } from '../store/projectStore';
 import { useAuth } from '../store/auth';
+import { useMapRegistry } from '../store/mapRegistry';
 import { MapSwitcher } from './MapSwitcher';
+import { ShareModal } from './ShareModal';
 
 export function Topbar() {
-  const { state, dispatch } = useStore();
+  const { state, dispatch, readOnly } = useStore();
   const { signOut } = useAuth();
+  const { activeMeta } = useMapRegistry();
+  const [shareOpen, setShareOpen] = useState(false);
+
+  const isOwner = activeMeta?.role === 'owner';
 
   return (
     <header className="topbar">
@@ -13,6 +20,7 @@ export function Topbar() {
         PointPlanner
       </div>
       <MapSwitcher />
+      {readOnly && <span className="pill">Viewer (read-only)</span>}
       <div className="spacer" />
       <button className="tb-btn" type="button">
         Board view
@@ -24,16 +32,35 @@ export function Topbar() {
       >
         {state.theme === 'dark' ? '☀ Light' : '☾ Dark'}
       </button>
-      <button
-        className="tb-btn primary"
-        type="button"
-        onClick={() => dispatch({ type: 'OPEN_MODAL' })}
-      >
-        + Add task
-      </button>
+      {isOwner && (
+        <button
+          className="tb-btn"
+          type="button"
+          onClick={() => setShareOpen(true)}
+        >
+          Share
+        </button>
+      )}
+      {!readOnly && (
+        <button
+          className="tb-btn primary"
+          type="button"
+          onClick={() => dispatch({ type: 'OPEN_MODAL' })}
+        >
+          + Add task
+        </button>
+      )}
       <button className="tb-btn" type="button" onClick={() => void signOut()}>
         Sign out
       </button>
+
+      {shareOpen && activeMeta && (
+        <ShareModal
+          mapId={activeMeta.id}
+          mapName={activeMeta.name}
+          onClose={() => setShareOpen(false)}
+        />
+      )}
     </header>
   );
 }

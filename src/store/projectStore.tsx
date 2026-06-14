@@ -1,7 +1,7 @@
-import React, { createContext, useContext, useReducer, useMemo, useEffect, useRef, useState } from 'react';
+import React, { createContext, useContext, useReducer, useMemo, useEffect, useRef, useState, useCallback } from 'react';
 import { buildIndexes, type Indexes } from '../lib/indexes';
 import { createSeedMapData } from '../lib/maps';
-import { loadMap, saveMap } from '../lib/mapsRepo';
+import { loadMap, saveMap, type MapRole } from '../lib/mapsRepo';
 import { useMapRegistry } from './mapRegistry';
 import { reducer, type StoreState, type PersistedState, type Action } from './reducer';
 
@@ -10,16 +10,32 @@ export type { StoreState, Action, LineData, CreateTaskData, EditTaskData } from 
 
 const AUTOSAVE_DEBOUNCE_MS = 800;
 
+// Actions that mutate the map's persisted state. A read-only (Viewer) store
+// drops these; view-only actions (open/close detail, highlight, theme, modals)
+// still flow through so navigation works.
+const MUTATING_ACTIONS = new Set<Action['type']>([
+  'DO_ACTION',
+  'CREATE_TASK',
+  'UPDATE_TASK',
+  'DELETE_TASK',
+  'CREATE_LINE',
+  'UPDATE_LINE',
+  'DELETE_LINE',
+]);
+
 interface StoreContextValue {
   state: StoreState;
   indexes: Indexes;
   dispatch: React.Dispatch<Action>;
+  // True for a Viewer share — the UI hides edit affordances and the store drops
+  // mutating actions and never autosaves. Owner/Editor are NOT read-only.
+  readOnly: boolean;
 }
 
 const StoreContext = createContext<StoreContextValue | null>(null);
 
 export function ProjectStoreProvider({ children, mapId }: { children: React.ReactNode; mapId: string }) {
-  const [loaded, setLoaded] = useState<{ data: PersistedState; version: number } | null>(null);
+  const [loaded, setLoaded] = useState<{ data: PersistedState; version: number; role: MapRole } | null>(null);
 
   // Load the map blob + its version from the cloud before rendering the editor.
   // App keys this provider on the active map id, so a map switch remounts it
@@ -31,16 +47,16 @@ export function ProjectStoreProvider({ children, mapId }: { children: React.Reac
         const rec = await loadMap(mapId);
         if (!active) return;
         if (rec) {
-          setLoaded({ data: rec.data, version: rec.version });
+          setLoaded({ data: rec.data, version: rec.version, role: rec.role });
         } else {
           // Defensive fallback: row missing (e.g. deleted elsewhere). Start from
-          // seed so the editor can still render.
-          setLoaded({ data: createSeedMapData(), version: 1 });
+          // seed so the editor can still render. A missing row means we own it.
+          setLoaded({ data: createSeedMapData(), version: 1, role: 'owner' });
         }
       } catch (err) {
         if (!active) return;
         console.error('Failed to load map', err);
-        setLoaded({ data: createSeedMapData(), version: 1 });
+        setLoaded({ data: createSeedMapData(), version: 1, role: 'owner' });
       }
     })();
     return () => {
@@ -53,7 +69,7 @@ export function ProjectStoreProvider({ children, mapId }: { children: React.Reac
   }
 
   return (
-    <LoadedStore mapId={mapId} initialData={loaded.data} initialVersion={loaded.version}>
+    <LoadedStore mapId={mapId} initialData={loaded.data} initialVersion={loaded.version} role={loaded.role}>
       {children}
     </LoadedStore>
   );
@@ -64,12 +80,17 @@ function LoadedStore({
   mapId,
   initialData,
   initialVersion,
+  role,
 }: {
   children: React.ReactNode;
   mapId: string;
   initialData: PersistedState;
   initialVersion: number;
+  role: MapRole;
 }) {
+  // A Viewer share is read-only. Owner/Editor remain editable (#20 keeps Editor
+  // writable). When read-only the store drops mutating actions and never autosaves.
+  const readOnly = role === 'viewer';
   const initialState: StoreState = {
     ...initialData,
     selectedId: null,
@@ -82,8 +103,20 @@ function LoadedStore({
     modalPreset: null,
   };
 
-  const [state, dispatch] = useReducer(reducer, initialState);
+  const [state, rawDispatch] = useReducer(reducer, initialState);
   const { reloadActiveMap } = useMapRegistry();
+
+  // Read-only enforcement: when this is a Viewer share, drop any mutating action
+  // before it reaches the reducer. View-only actions (open/close detail,
+  // highlight, theme, modals) still flow so navigation keeps working. This is the
+  // robust backstop behind the UI hiding edit affordances.
+  const dispatch = useCallback<React.Dispatch<Action>>(
+    action => {
+      if (readOnly && MUTATING_ACTIONS.has(action.type)) return;
+      rawDispatch(action);
+    },
+    [readOnly],
+  );
 
   // Current cloud version of this map. Sent on every save so the server can
   // reject stale writes (#18); updated to the new version on each success.
@@ -108,6 +141,8 @@ function LoadedStore({
       firstRun.current = false;
       return;
     }
+    // A Viewer must never write. Skip autosave entirely when read-only.
+    if (readOnly) return;
     if (stale) return;
     const snapshot: PersistedState = {
       project: state.project,
@@ -131,7 +166,7 @@ function LoadedStore({
       })();
     }, AUTOSAVE_DEBOUNCE_MS);
     return () => clearTimeout(handle);
-  }, [mapId, stale, state.project, state.lines, state.stations, state.edges]);
+  }, [mapId, readOnly, stale, state.project, state.lines, state.stations, state.edges]);
 
   // Apply theme to body
   useEffect(() => {
@@ -139,7 +174,7 @@ function LoadedStore({
   }, [state.theme]);
 
   return (
-    <StoreContext.Provider value={{ state, indexes, dispatch }}>
+    <StoreContext.Provider value={{ state, indexes, dispatch, readOnly }}>
       {stale && (
         <div className="stale-banner" role="alert">
           <span className="stale-banner-msg">Someone changed this map — reload to continue.</span>

@@ -112,6 +112,7 @@ export function MapSwitcher() {
         <div className="map-menu" role="listbox" aria-label="Maps">
           {index.maps.map(m => {
             const isActive = m.id === index.activeMapId;
+            const isOwned = m.role === 'owner';
             return (
               <div
                 key={m.id}
@@ -126,47 +127,50 @@ export function MapSwitcher() {
                 >
                   {isActive && <span className="map-menu-check" aria-hidden="true">✓</span>}
                   <span className="map-menu-item-label">{m.name}</span>
+                  {!isOwned && <span className="map-menu-shared-badge">Shared</span>}
                 </button>
-                <div className="map-menu-item-actions">
-                  {reimportSourceFor(m.id) && (
+                {isOwned && (
+                  <div className="map-menu-item-actions">
+                    {reimportSourceFor(m.id) && (
+                      <button
+                        className="map-menu-icon-btn"
+                        type="button"
+                        title="Re-import from committed file"
+                        aria-label={`Re-import "${m.name}"`}
+                        onClick={e => { e.stopPropagation(); handleReimportRequest(m.id, m.name); }}
+                      >
+                        ⟳
+                      </button>
+                    )}
                     <button
                       className="map-menu-icon-btn"
                       type="button"
-                      title="Re-import from committed file"
-                      aria-label={`Re-import "${m.name}"`}
-                      onClick={e => { e.stopPropagation(); handleReimportRequest(m.id, m.name); }}
+                      title="Rename map"
+                      aria-label={`Rename "${m.name}"`}
+                      onClick={e => { e.stopPropagation(); handleRename(m.id, m.name); }}
                     >
-                      ⟳
+                      ✎
                     </button>
-                  )}
-                  <button
-                    className="map-menu-icon-btn"
-                    type="button"
-                    title="Rename map"
-                    aria-label={`Rename "${m.name}"`}
-                    onClick={e => { e.stopPropagation(); handleRename(m.id, m.name); }}
-                  >
-                    ✎
-                  </button>
-                  <button
-                    className="map-menu-icon-btn"
-                    type="button"
-                    title="Duplicate map"
-                    aria-label={`Duplicate "${m.name}"`}
-                    onClick={e => { e.stopPropagation(); handleDuplicate(m.id); }}
-                  >
-                    ⧉
-                  </button>
-                  <button
-                    className="map-menu-icon-btn map-menu-icon-btn--danger"
-                    type="button"
-                    title="Delete map"
-                    aria-label={`Delete "${m.name}"`}
-                    onClick={e => { e.stopPropagation(); handleDeleteRequest(m.id, m.name); }}
-                  >
-                    ✕
-                  </button>
-                </div>
+                    <button
+                      className="map-menu-icon-btn"
+                      type="button"
+                      title="Duplicate map"
+                      aria-label={`Duplicate "${m.name}"`}
+                      onClick={e => { e.stopPropagation(); handleDuplicate(m.id); }}
+                    >
+                      ⧉
+                    </button>
+                    <button
+                      className="map-menu-icon-btn map-menu-icon-btn--danger"
+                      type="button"
+                      title="Delete map"
+                      aria-label={`Delete "${m.name}"`}
+                      onClick={e => { e.stopPropagation(); handleDeleteRequest(m.id, m.name); }}
+                    >
+                      ✕
+                    </button>
+                  </div>
+                )}
               </div>
             );
           })}

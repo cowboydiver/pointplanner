@@ -1,13 +1,20 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import type { MapIndex, MapMeta } from '../lib/maps';
 import { createSeedMapData, chooseInitialMap } from '../lib/maps';
 import * as repo from '../lib/mapsRepo';
+import type { MapListItem } from '../lib/mapsRepo';
 
 const SEED_NAME = 'PointPlanner Demo';
 
+// Local index: like MapIndex but carrying the role on each item so the role
+// travels with the switcher list (issue #19).
+interface RegistryIndex {
+  activeMapId: string | null;
+  maps: MapListItem[];
+}
+
 interface MapRegistryContextValue {
-  index: MapIndex;
-  activeMeta: MapMeta | null;
+  index: RegistryIndex;
+  activeMeta: MapListItem | null;
   // True while the initial owned-map list is being fetched/seeded.
   loading: boolean;
   // Bumped to force the active map's store provider to remount, which re-runs
@@ -29,7 +36,7 @@ interface MapRegistryContextValue {
 const MapRegistryContext = createContext<MapRegistryContextValue | null>(null);
 
 export function MapRegistryProvider({ children }: { children: React.ReactNode }) {
-  const [index, setIndex] = useState<MapIndex>({ activeMapId: null, maps: [] });
+  const [index, setIndex] = useState<RegistryIndex>({ activeMapId: null, maps: [] });
   const [loading, setLoading] = useState(true);
   // App.tsx keys the store provider on this; bumping it remounts the provider,
   // which re-fetches current server state (used by the stale-write reload, #18).
@@ -46,7 +53,7 @@ export function MapRegistryProvider({ children }: { children: React.ReactNode })
         const { needsSeed } = chooseInitialMap(maps);
         if (needsSeed) {
           const meta = await repo.createMap(SEED_NAME, createSeedMapData());
-          maps = [meta];
+          maps = [{ ...meta, role: 'owner' }];
         }
         if (!active) return;
         const { activeMapId } = chooseInitialMap(maps);
@@ -72,7 +79,8 @@ export function MapRegistryProvider({ children }: { children: React.ReactNode })
     void (async () => {
       try {
         const meta = await repo.createMap(name, createSeedMapData());
-        setIndex(prev => ({ activeMapId: meta.id, maps: [meta, ...prev.maps] }));
+        const item: MapListItem = { ...meta, role: 'owner' };
+        setIndex(prev => ({ activeMapId: item.id, maps: [item, ...prev.maps] }));
       } catch (err) {
         console.error('Failed to create map', err);
       }
@@ -125,15 +133,16 @@ export function MapRegistryProvider({ children }: { children: React.ReactNode })
     void (async () => {
       try {
         const meta = await repo.duplicateMap(id);
+        const item: MapListItem = { ...meta, role: 'owner' };
         setIndex(prev => {
           const idx = prev.maps.findIndex(m => m.id === id);
           const insertAt = idx === -1 ? prev.maps.length : idx + 1;
           const maps = [
             ...prev.maps.slice(0, insertAt),
-            meta,
+            item,
             ...prev.maps.slice(insertAt),
           ];
-          return { activeMapId: meta.id, maps };
+          return { activeMapId: item.id, maps };
         });
       } catch (err) {
         console.error('Failed to duplicate map', err);
