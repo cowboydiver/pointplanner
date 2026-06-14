@@ -11,13 +11,10 @@ export function MapSwitcher() {
     renameMapById,
     deleteMapById,
     duplicateMapById,
-    reimportSourceFor,
-    reimportMapById,
   } = useMapRegistry();
 
   const [open, setOpen] = useState(false);
   const [pendingDelete, setPendingDelete] = useState<{ id: string; name: string } | null>(null);
-  const [pendingReimport, setPendingReimport] = useState<{ id: string; name: string } | null>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
 
   // Close on outside click and Escape
@@ -73,18 +70,6 @@ export function MapSwitcher() {
     }
   }
 
-  function handleReimportRequest(id: string, name: string) {
-    setPendingReimport({ id, name });
-  }
-
-  function handleReimportConfirm() {
-    if (pendingReimport) {
-      reimportMapById(pendingReimport.id);
-      setPendingReimport(null);
-      setOpen(false);
-    }
-  }
-
   function handleNewMap() {
     const name = window.prompt('New map name', 'Untitled');
     if (name && name.trim()) {
@@ -131,17 +116,6 @@ export function MapSwitcher() {
                 </button>
                 {isOwned && (
                   <div className="map-menu-item-actions">
-                    {reimportSourceFor(m.id) && (
-                      <button
-                        className="map-menu-icon-btn"
-                        type="button"
-                        title="Re-import from committed file"
-                        aria-label={`Re-import "${m.name}"`}
-                        onClick={e => { e.stopPropagation(); handleReimportRequest(m.id, m.name); }}
-                      >
-                        ⟳
-                      </button>
-                    )}
                     <button
                       className="map-menu-icon-btn"
                       type="button"
@@ -194,17 +168,6 @@ export function MapSwitcher() {
           confirmLabel="Delete map"
           onConfirm={handleDeleteConfirm}
           onCancel={() => setPendingDelete(null)}
-        />
-      )}
-
-      {pendingReimport && (
-        <ConfirmDialog
-          isOpen
-          title={`Re-import "${pendingReimport.name}"?`}
-          message={`This will replace your local copy of "${pendingReimport.name}" with the latest committed version. Local edits will be lost.`}
-          confirmLabel="Re-import"
-          onConfirm={handleReimportConfirm}
-          onCancel={() => setPendingReimport(null)}
         />
       )}
     </div>

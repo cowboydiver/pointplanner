@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { createSeedMapData, chooseInitialMap } from '../lib/maps';
+import { createSeedMapData, createBlankMapData, chooseInitialMap } from '../lib/maps';
 import * as repo from '../lib/mapsRepo';
 import type { MapListItem } from '../lib/mapsRepo';
 
@@ -30,10 +30,6 @@ interface MapRegistryContextValue {
   renameMapById: (id: string, name: string) => void;
   deleteMapById: (id: string) => void;
   duplicateMapById: (id: string) => void;
-  // Committed file id this map can re-sync from, or null.
-  reimportSourceFor: (id: string) => string | null;
-  // Replace a committed-backed map's editable copy with the committed file.
-  reimportMapById: (id: string) => void;
 }
 
 const MapRegistryContext = createContext<MapRegistryContextValue | null>(null);
@@ -81,7 +77,7 @@ export function MapRegistryProvider({ children }: { children: React.ReactNode })
   function createMap(name: string): void {
     void (async () => {
       try {
-        const meta = await repo.createMap(name, createSeedMapData());
+        const meta = await repo.createMap(name, createBlankMapData(name));
         const item: MapListItem = { ...meta, role: 'owner' };
         setIndex(prev => ({ activeMapId: item.id, maps: [item, ...prev.maps] }));
       } catch (err) {
@@ -153,18 +149,6 @@ export function MapRegistryProvider({ children }: { children: React.ReactNode })
     })();
   }
 
-  // Committed-file reimport was a localStorage-only feature (copying a bundled
-  // map into an editable localStorage copy). Cloud maps have no such source, so
-  // these are intentionally inert in this slice; the committedMaps/committedReimport
-  // modules and their tests are left in place but no longer wired here.
-  function reimportSourceFor(): string | null {
-    return null;
-  }
-
-  function reimportMapById(): void {
-    // no-op for cloud maps (see comment above)
-  }
-
   function reloadActiveMap(): void {
     setReloadNonce(n => n + 1);
   }
@@ -196,8 +180,6 @@ export function MapRegistryProvider({ children }: { children: React.ReactNode })
     renameMapById,
     deleteMapById,
     duplicateMapById,
-    reimportSourceFor,
-    reimportMapById,
   };
 
   return (
