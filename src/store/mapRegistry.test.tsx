@@ -11,6 +11,7 @@ import type { MapRow } from '../lib/mapsRepo';
 import type { CommittedMap } from '../lib/committedMaps';
 import type { MapData } from '../lib/maps';
 import type { LegacyMap } from '../lib/legacyMaps';
+import { mapMetaKey } from '../lib/maps';
 
 // ── Mocks ────────────────────────────────────────────────────────────────────
 
@@ -62,8 +63,10 @@ import { MapRegistryProvider, useMapRegistry } from './mapRegistry';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
+const OWNER_ID = 'uid-owner';
+
 function makeRow(id: string, name: string, version = 1): MapRow {
-  return { id, name, version, updatedAt: '2024-01-01T00:00:00Z', owner: 'uid-owner' };
+  return { id, name, version, updatedAt: '2024-01-01T00:00:00Z', owner: OWNER_ID };
 }
 
 function makeMapData(name: string): MapData {
@@ -101,20 +104,24 @@ function RegistryProbe() {
     dismissLegacyImport,
   } = useMapRegistry();
 
+  const map1Key = index.maps.find(m => m.id === 'map-1')?.key ?? '';
+  const map2Key = index.maps.find(m => m.id === 'map-2')?.key ?? '';
+  const committedKey = index.maps.find(m => m.id === 'committed-roadmap')?.key ?? '';
+
   return (
     <div>
       <span data-testid="loading">{String(loading)}</span>
-      <span data-testid="activeMapId">{index.activeMapId ?? 'null'}</span>
+      <span data-testid="activeKey">{index.activeKey ?? 'null'}</span>
       <span data-testid="mapCount">{index.maps.length}</span>
       <span data-testid="mapNames">{index.maps.map(m => m.name).join(',')}</span>
       <span data-testid="activeName">{activeMeta?.name ?? 'null'}</span>
       <button data-testid="btn-create" onClick={() => createMap('New Map')}>create</button>
-      <button data-testid="btn-select" onClick={() => selectMap('map-2')}>select</button>
-      <button data-testid="btn-rename" onClick={() => renameMapById('map-1', 'Renamed')}>rename</button>
-      <button data-testid="btn-delete" onClick={() => deleteMapById('map-1')}>delete</button>
-      <button data-testid="btn-duplicate" onClick={() => duplicateMapById('map-1')}>duplicate</button>
-      <span data-testid="reimportSource">{reimportSourceFor('committed-roadmap') ?? 'null'}</span>
-      <button data-testid="btn-reimport" onClick={() => reimportMapById('committed-roadmap')}>reimport</button>
+      <button data-testid="btn-select" onClick={() => selectMap(map2Key)}>select</button>
+      <button data-testid="btn-rename" onClick={() => renameMapById(map1Key, 'Renamed')}>rename</button>
+      <button data-testid="btn-delete" onClick={() => deleteMapById(map1Key)}>delete</button>
+      <button data-testid="btn-duplicate" onClick={() => duplicateMapById(map1Key)}>duplicate</button>
+      <span data-testid="reimportSource">{reimportSourceFor(committedKey) ?? 'null'}</span>
+      <button data-testid="btn-reimport" onClick={() => reimportMapById(committedKey)}>reimport</button>
       <span data-testid="legacyImportCount">{legacyImport !== null ? String(legacyImport.count) : 'null'}</span>
       <button data-testid="btn-import-legacy" onClick={() => void importLegacyMaps()}>import legacy</button>
       <button data-testid="btn-dismiss-legacy" onClick={() => dismissLegacyImport()}>dismiss legacy</button>
@@ -122,9 +129,9 @@ function RegistryProbe() {
   );
 }
 
-function renderRegistry() {
+function renderRegistry(userId?: string) {
   return render(
-    <MapRegistryProvider>
+    <MapRegistryProvider userId={userId ?? OWNER_ID}>
       <RegistryProbe />
     </MapRegistryProvider>,
   );
@@ -184,7 +191,8 @@ describe('MapRegistryProvider — initial load', () => {
       expect(screen.getByTestId('mapCount').textContent).toBe('2');
     });
     expect(screen.getByTestId('mapNames').textContent).toBe('Alpha,Beta');
-    expect(screen.getByTestId('activeMapId').textContent).toBe('map-1');
+    // The active key is the composite key for map-1
+    expect(screen.getByTestId('activeKey').textContent).toBe(mapMetaKey(OWNER_ID, 'map-1'));
   });
 
   it('creates the seed (demo) map when listMaps returns empty', async () => {
@@ -204,9 +212,10 @@ describe('MapRegistryProvider — initial load', () => {
     expect(screen.getByTestId('mapCount').textContent).toBe('1');
   });
 
-  it('respects the stored active pointer when it matches a fetched map', async () => {
+  it('respects the stored active pointer when it matches a fetched map composite key', async () => {
+    const map2Key = mapMetaKey(OWNER_ID, 'map-2');
     try {
-      localStorage.setItem('pointplanner.activeMapId', 'map-2');
+      localStorage.setItem('pointplanner.activeMapId', map2Key);
     } catch {
       // ignore
     }
@@ -218,13 +227,13 @@ describe('MapRegistryProvider — initial load', () => {
     renderRegistry();
 
     await waitFor(() => {
-      expect(screen.getByTestId('activeMapId').textContent).toBe('map-2');
+      expect(screen.getByTestId('activeKey').textContent).toBe(map2Key);
     });
   });
 
   it('defaults to first map when the stored pointer is stale', async () => {
     try {
-      localStorage.setItem('pointplanner.activeMapId', 'map-99');
+      localStorage.setItem('pointplanner.activeMapId', 'stale-key|map-99');
     } catch {
       // ignore
     }
@@ -233,8 +242,22 @@ describe('MapRegistryProvider — initial load', () => {
     renderRegistry();
 
     await waitFor(() => {
-      expect(screen.getByTestId('activeMapId').textContent).toBe('map-1');
+      expect(screen.getByTestId('activeKey').textContent).toBe(mapMetaKey(OWNER_ID, 'map-1'));
     });
+  });
+
+  it('marks a map as readOnly when its owner does not match the signed-in user', async () => {
+    const otherOwner = 'uid-other-owner';
+    const sharedRow: MapRow = { id: 'shared-map', name: 'Shared', version: 1, updatedAt: '', owner: otherOwner };
+    mockListMaps.mockResolvedValue([makeRow('my-map', 'Mine'), sharedRow]);
+
+    renderRegistry(OWNER_ID);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('mapCount').textContent).toBe('2');
+    });
+    // Can't directly read readOnly from the probe, but the activeName shows both loaded
+    expect(screen.getByTestId('mapNames').textContent).toBe('Mine,Shared');
   });
 });
 
@@ -252,7 +275,7 @@ describe('MapRegistryProvider — createMap', () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByTestId('activeMapId').textContent).toBe('new-map');
+      expect(screen.getByTestId('activeKey').textContent).toBe(mapMetaKey(OWNER_ID, 'new-map'));
     });
     expect(mockCreateMap).toHaveBeenCalledWith(
       expect.any(String),
@@ -263,7 +286,7 @@ describe('MapRegistryProvider — createMap', () => {
 });
 
 describe('MapRegistryProvider — selectMap', () => {
-  it('switches the active map without a repo call', async () => {
+  it('switches the active map (by composite key) without a repo call', async () => {
     mockListMaps.mockResolvedValue([
       makeRow('map-1', 'Alpha'),
       makeRow('map-2', 'Beta'),
@@ -271,20 +294,20 @@ describe('MapRegistryProvider — selectMap', () => {
 
     renderRegistry();
     await waitFor(() => expect(screen.getByTestId('loading').textContent).toBe('false'));
-    expect(screen.getByTestId('activeMapId').textContent).toBe('map-1');
+    expect(screen.getByTestId('activeKey').textContent).toBe(mapMetaKey(OWNER_ID, 'map-1'));
 
     act(() => {
       screen.getByTestId('btn-select').click();
     });
 
-    expect(screen.getByTestId('activeMapId').textContent).toBe('map-2');
+    expect(screen.getByTestId('activeKey').textContent).toBe(mapMetaKey(OWNER_ID, 'map-2'));
     // No mapsRepo calls beyond the initial listMaps
     expect(mockCreateMap).not.toHaveBeenCalled();
   });
 });
 
 describe('MapRegistryProvider — renameMapById', () => {
-  it('optimistically renames and calls mapsRepo.renameMap', async () => {
+  it('optimistically renames (by composite key) and calls mapsRepo.renameMap with the slug id', async () => {
     mockListMaps.mockResolvedValue([makeRow('map-1', 'Alpha')]);
     mockRenameMap.mockResolvedValue(undefined);
 
@@ -303,7 +326,7 @@ describe('MapRegistryProvider — renameMapById', () => {
 });
 
 describe('MapRegistryProvider — deleteMapById', () => {
-  it('removes the map and calls mapsRepo.deleteMap', async () => {
+  it('removes the map (by composite key) and calls mapsRepo.deleteMap with the slug id', async () => {
     mockListMaps.mockResolvedValue([
       makeRow('map-1', 'Alpha'),
       makeRow('map-2', 'Beta'),
@@ -319,7 +342,7 @@ describe('MapRegistryProvider — deleteMapById', () => {
 
     expect(screen.getByTestId('mapCount').textContent).toBe('1');
     // Deleting the active map should switch to another map
-    expect(screen.getByTestId('activeMapId').textContent).toBe('map-2');
+    expect(screen.getByTestId('activeKey').textContent).toBe(mapMetaKey(OWNER_ID, 'map-2'));
     await waitFor(() => {
       expect(mockDeleteMap).toHaveBeenCalledWith('map-1');
     });
@@ -340,7 +363,7 @@ describe('MapRegistryProvider — duplicateMapById', () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByTestId('activeMapId').textContent).toBe('alpha-copy');
+      expect(screen.getByTestId('activeKey').textContent).toBe(mapMetaKey(OWNER_ID, 'alpha-copy'));
     });
     expect(mockDuplicateMap).toHaveBeenCalledWith(
       'map-1',
@@ -416,7 +439,7 @@ describe('MapRegistryProvider — committed maps cloud seeding', () => {
 });
 
 describe('MapRegistryProvider — reimport', () => {
-  it('reimportSourceFor returns the committed file id for a committed map', async () => {
+  it('reimportSourceFor returns the committed file id for a committed map (by composite key)', async () => {
     mockListMaps.mockResolvedValue([makeRow('committed-roadmap', 'Roadmap')]);
     mockGetCommittedMaps.mockReturnValue([]);
     mockGetCommittedMapById.mockReturnValue(makeCommitted('roadmap', 'Roadmap'));

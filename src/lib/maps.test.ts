@@ -10,6 +10,7 @@ import {
   renameMap,
   deleteMap,
   duplicateMap,
+  mapMetaKey,
 } from './maps';
 import type { MapIndex, MapMeta } from './maps';
 
@@ -17,16 +18,40 @@ import type { MapIndex, MapMeta } from './maps';
 // Helpers
 // ---------------------------------------------------------------------------
 
-function makeIndex(ids: string[], activeId: string | null = null): MapIndex {
+const OWNER_A = 'uid-owner-a';
+const OWNER_B = 'uid-owner-b';
+
+function makeIndex(ids: string[], activeKey: string | null = null): MapIndex {
   return {
-    activeMapId: activeId,
-    maps: ids.map(id => ({ id, name: `Map ${id}` })),
+    activeKey,
+    maps: ids.map(id => makeMeta(id)),
   };
 }
 
-function makeMeta(id: string, name = `Map ${id}`): MapMeta {
-  return { id, name };
+function makeMeta(id: string, name = `Map ${id}`, owner = OWNER_A): MapMeta {
+  return { key: mapMetaKey(owner, id), id, owner, name, readOnly: false };
 }
+
+function makeSharedMeta(id: string, name = `Map ${id}`, owner = OWNER_B): MapMeta {
+  return { key: mapMetaKey(owner, id), id, owner, name, readOnly: true };
+}
+
+// ---------------------------------------------------------------------------
+// mapMetaKey
+// ---------------------------------------------------------------------------
+
+describe('mapMetaKey', () => {
+  it('returns owner|id format', () => {
+    expect(mapMetaKey('uid-abc', 'my-map')).toBe('uid-abc|my-map');
+  });
+
+  it('is unambiguous (owner and id never contain |)', () => {
+    const key = mapMetaKey('uid-123', 'roadmap');
+    expect(key.split('|')).toHaveLength(2);
+    expect(key.split('|')[0]).toBe('uid-123');
+    expect(key.split('|')[1]).toBe('roadmap');
+  });
+});
 
 // ---------------------------------------------------------------------------
 // genMapId
@@ -208,31 +233,33 @@ describe('cloneMapData', () => {
 
 describe('addMap', () => {
   it('appends the meta to the maps list', () => {
-    const index = makeIndex(['a', 'b'], 'a');
+    const index = makeIndex(['a', 'b'], mapMetaKey(OWNER_A, 'a'));
     const result = addMap(index, makeMeta('c'));
     expect(result.maps.map(m => m.id)).toEqual(['a', 'b', 'c']);
   });
 
-  it('sets activeMapId to the new meta id', () => {
-    const index = makeIndex(['a'], 'a');
-    const result = addMap(index, makeMeta('b'));
-    expect(result.activeMapId).toBe('b');
+  it('sets activeKey to the new meta key', () => {
+    const index = makeIndex(['a'], mapMetaKey(OWNER_A, 'a'));
+    const newMeta = makeMeta('b');
+    const result = addMap(index, newMeta);
+    expect(result.activeKey).toBe(newMeta.key);
   });
 
   it('does not mutate the original index', () => {
-    const index = makeIndex(['a'], 'a');
+    const index = makeIndex(['a'], mapMetaKey(OWNER_A, 'a'));
     const originalMaps = index.maps;
     addMap(index, makeMeta('b'));
     expect(index.maps).toBe(originalMaps);
     expect(index.maps.length).toBe(1);
-    expect(index.activeMapId).toBe('a');
+    expect(index.activeKey).toBe(mapMetaKey(OWNER_A, 'a'));
   });
 
   it('works on an empty index', () => {
     const index = makeIndex([], null);
-    const result = addMap(index, makeMeta('first'));
+    const newMeta = makeMeta('first');
+    const result = addMap(index, newMeta);
     expect(result.maps.length).toBe(1);
-    expect(result.activeMapId).toBe('first');
+    expect(result.activeKey).toBe(newMeta.key);
   });
 });
 
@@ -241,28 +268,43 @@ describe('addMap', () => {
 // ---------------------------------------------------------------------------
 
 describe('switchMap', () => {
-  it('switches to an existing map id', () => {
-    const index = makeIndex(['a', 'b', 'c'], 'a');
-    const result = switchMap(index, 'c');
-    expect(result.activeMapId).toBe('c');
+  it('switches to an existing map by key', () => {
+    const metaA = makeMeta('a');
+    const metaB = makeMeta('b');
+    const metaC = makeMeta('c');
+    const index: MapIndex = { activeKey: metaA.key, maps: [metaA, metaB, metaC] };
+    const result = switchMap(index, metaC.key);
+    expect(result.activeKey).toBe(metaC.key);
   });
 
-  it('returns the same index reference for an unknown id', () => {
-    const index = makeIndex(['a', 'b'], 'a');
+  it('returns the same index reference for an unknown key', () => {
+    const index = makeIndex(['a', 'b'], mapMetaKey(OWNER_A, 'a'));
     const result = switchMap(index, 'nonexistent');
     expect(result).toBe(index);
   });
 
   it('does not mutate the original index', () => {
-    const index = makeIndex(['a', 'b'], 'a');
-    switchMap(index, 'b');
-    expect(index.activeMapId).toBe('a');
+    const metaA = makeMeta('a');
+    const metaB = makeMeta('b');
+    const index: MapIndex = { activeKey: metaA.key, maps: [metaA, metaB] };
+    switchMap(index, metaB.key);
+    expect(index.activeKey).toBe(metaA.key);
   });
 
-  it('switching to current id is a no-op (still returns same or equal)', () => {
-    const index = makeIndex(['a', 'b'], 'a');
-    const result = switchMap(index, 'a');
-    expect(result.activeMapId).toBe('a');
+  it('switching to current key is a no-op (still returns same or equal)', () => {
+    const metaA = makeMeta('a');
+    const metaB = makeMeta('b');
+    const index: MapIndex = { activeKey: metaA.key, maps: [metaA, metaB] };
+    const result = switchMap(index, metaA.key);
+    expect(result.activeKey).toBe(metaA.key);
+  });
+
+  it('handles shared map keys (owner B maps)', () => {
+    const owned = makeMeta('roadmap');
+    const shared = makeSharedMeta('roadmap'); // same id, different owner
+    const index: MapIndex = { activeKey: owned.key, maps: [owned, shared] };
+    const result = switchMap(index, shared.key);
+    expect(result.activeKey).toBe(shared.key);
   });
 });
 
@@ -271,35 +313,47 @@ describe('switchMap', () => {
 // ---------------------------------------------------------------------------
 
 describe('renameMap', () => {
-  it('renames the target map', () => {
-    const index = makeIndex(['a', 'b', 'c'], 'a');
-    const result = renameMap(index, 'b', 'Brand New Name');
-    expect(result.maps.find(m => m.id === 'b')?.name).toBe('Brand New Name');
+  it('renames the target map by key', () => {
+    const metaA = makeMeta('a');
+    const metaB = makeMeta('b');
+    const metaC = makeMeta('c');
+    const index: MapIndex = { activeKey: metaA.key, maps: [metaA, metaB, metaC] };
+    const result = renameMap(index, metaB.key, 'Brand New Name');
+    expect(result.maps.find(m => m.key === metaB.key)?.name).toBe('Brand New Name');
   });
 
   it('does not change other maps', () => {
-    const index = makeIndex(['a', 'b', 'c'], 'a');
-    const result = renameMap(index, 'b', 'Brand New Name');
-    expect(result.maps.find(m => m.id === 'a')?.name).toBe('Map a');
-    expect(result.maps.find(m => m.id === 'c')?.name).toBe('Map c');
+    const metaA = makeMeta('a');
+    const metaB = makeMeta('b');
+    const metaC = makeMeta('c');
+    const index: MapIndex = { activeKey: metaA.key, maps: [metaA, metaB, metaC] };
+    const result = renameMap(index, metaB.key, 'Brand New Name');
+    expect(result.maps.find(m => m.key === metaA.key)?.name).toBe('Map a');
+    expect(result.maps.find(m => m.key === metaC.key)?.name).toBe('Map c');
   });
 
-  it('does not change activeMapId', () => {
-    const index = makeIndex(['a', 'b'], 'a');
-    const result = renameMap(index, 'b', 'New Name');
-    expect(result.activeMapId).toBe('a');
+  it('does not change activeKey', () => {
+    const metaA = makeMeta('a');
+    const metaB = makeMeta('b');
+    const index: MapIndex = { activeKey: metaA.key, maps: [metaA, metaB] };
+    const result = renameMap(index, metaB.key, 'New Name');
+    expect(result.activeKey).toBe(metaA.key);
   });
 
   it('does not mutate the original index', () => {
-    const index = makeIndex(['a', 'b'], 'a');
-    const originalName = index.maps[1].name;
-    renameMap(index, 'b', 'Changed');
-    expect(index.maps[1].name).toBe(originalName);
+    const metaA = makeMeta('a');
+    const metaB = makeMeta('b');
+    const index: MapIndex = { activeKey: metaA.key, maps: [metaA, metaB] };
+    const originalName = index.maps[1]!.name;
+    renameMap(index, metaB.key, 'Changed');
+    expect(index.maps[1]!.name).toBe(originalName);
   });
 
-  it('is a no-op for unknown id (maps unchanged)', () => {
-    const index = makeIndex(['a', 'b'], 'a');
-    const result = renameMap(index, 'zzz', 'Name');
+  it('is a no-op for unknown key (maps unchanged)', () => {
+    const metaA = makeMeta('a');
+    const metaB = makeMeta('b');
+    const index: MapIndex = { activeKey: metaA.key, maps: [metaA, metaB] };
+    const result = renameMap(index, 'unknown-key', 'Name');
     expect(result.maps).toEqual(index.maps);
   });
 });
@@ -310,53 +364,81 @@ describe('renameMap', () => {
 
 describe('deleteMap', () => {
   it('(a) deleting active map picks the AFTER neighbor', () => {
-    // active = 'b' (index 1), after deletion 'c' is at index 1
-    const index = makeIndex(['a', 'b', 'c'], 'b');
-    const result = deleteMap(index, 'b');
-    expect(result.activeMapId).toBe('c');
+    const metaA = makeMeta('a');
+    const metaB = makeMeta('b');
+    const metaC = makeMeta('c');
+    const index: MapIndex = { activeKey: metaB.key, maps: [metaA, metaB, metaC] };
+    const result = deleteMap(index, metaB.key);
+    expect(result.activeKey).toBe(metaC.key);
     expect(result.maps.map(m => m.id)).toEqual(['a', 'c']);
   });
 
   it('(b) deleting active that is LAST in list picks the BEFORE neighbor', () => {
-    const index = makeIndex(['a', 'b', 'c'], 'c');
-    const result = deleteMap(index, 'c');
-    expect(result.activeMapId).toBe('b');
+    const metaA = makeMeta('a');
+    const metaB = makeMeta('b');
+    const metaC = makeMeta('c');
+    const index: MapIndex = { activeKey: metaC.key, maps: [metaA, metaB, metaC] };
+    const result = deleteMap(index, metaC.key);
+    expect(result.activeKey).toBe(metaB.key);
     expect(result.maps.map(m => m.id)).toEqual(['a', 'b']);
   });
 
-  it('(c) deleting the only map → empty maps + activeMapId null', () => {
-    const index = makeIndex(['only'], 'only');
-    const result = deleteMap(index, 'only');
+  it('(c) deleting the only map → empty maps + activeKey null', () => {
+    const metaOnly = makeMeta('only');
+    const index: MapIndex = { activeKey: metaOnly.key, maps: [metaOnly] };
+    const result = deleteMap(index, metaOnly.key);
     expect(result.maps).toEqual([]);
-    expect(result.activeMapId).toBeNull();
+    expect(result.activeKey).toBeNull();
   });
 
-  it('(d) deleting a non-active map keeps activeMapId unchanged', () => {
-    const index = makeIndex(['a', 'b', 'c'], 'a');
-    const result = deleteMap(index, 'c');
-    expect(result.activeMapId).toBe('a');
+  it('(d) deleting a non-active map keeps activeKey unchanged', () => {
+    const metaA = makeMeta('a');
+    const metaB = makeMeta('b');
+    const metaC = makeMeta('c');
+    const index: MapIndex = { activeKey: metaA.key, maps: [metaA, metaB, metaC] };
+    const result = deleteMap(index, metaC.key);
+    expect(result.activeKey).toBe(metaA.key);
     expect(result.maps.map(m => m.id)).toEqual(['a', 'b']);
   });
 
-  it('(e) unknown id is a no-op (returns same reference)', () => {
-    const index = makeIndex(['a', 'b'], 'a');
-    const result = deleteMap(index, 'zzz');
+  it('(e) unknown key is a no-op (returns same reference)', () => {
+    const metaA = makeMeta('a');
+    const metaB = makeMeta('b');
+    const index: MapIndex = { activeKey: metaA.key, maps: [metaA, metaB] };
+    const result = deleteMap(index, 'zzz-unknown-key');
     expect(result).toBe(index);
   });
 
   it('deleting active first map picks the AFTER neighbor (not the before)', () => {
-    const index = makeIndex(['a', 'b', 'c'], 'a');
-    const result = deleteMap(index, 'a');
-    expect(result.activeMapId).toBe('b');
+    const metaA = makeMeta('a');
+    const metaB = makeMeta('b');
+    const metaC = makeMeta('c');
+    const index: MapIndex = { activeKey: metaA.key, maps: [metaA, metaB, metaC] };
+    const result = deleteMap(index, metaA.key);
+    expect(result.activeKey).toBe(metaB.key);
   });
 
   it('does not mutate the original index', () => {
-    const index = makeIndex(['a', 'b', 'c'], 'b');
+    const metaA = makeMeta('a');
+    const metaB = makeMeta('b');
+    const metaC = makeMeta('c');
+    const index: MapIndex = { activeKey: metaB.key, maps: [metaA, metaB, metaC] };
     const originalMaps = index.maps;
-    deleteMap(index, 'b');
+    deleteMap(index, metaB.key);
     expect(index.maps).toBe(originalMaps);
     expect(index.maps.length).toBe(3);
-    expect(index.activeMapId).toBe('b');
+    expect(index.activeKey).toBe(metaB.key);
+  });
+
+  it('correctly deletes by composite key when two maps share the same slug id', () => {
+    const owned = makeMeta('roadmap');           // key = uid-owner-a|roadmap
+    const shared = makeSharedMeta('roadmap');    // key = uid-owner-b|roadmap
+    const index: MapIndex = { activeKey: owned.key, maps: [owned, shared] };
+    const result = deleteMap(index, shared.key);
+    expect(result.maps).toHaveLength(1);
+    expect(result.maps[0]!.key).toBe(owned.key);
+    // owned was not the active one that got deleted; shared was deleted but active stays
+    expect(result.activeKey).toBe(owned.key);
   });
 });
 
@@ -366,41 +448,60 @@ describe('deleteMap', () => {
 
 describe('duplicateMap', () => {
   it('inserts newMeta immediately after the source', () => {
-    const index = makeIndex(['a', 'b', 'c'], 'a');
-    const result = duplicateMap(index, 'b', makeMeta('b-copy'));
+    const metaA = makeMeta('a');
+    const metaB = makeMeta('b');
+    const metaC = makeMeta('c');
+    const index: MapIndex = { activeKey: metaA.key, maps: [metaA, metaB, metaC] };
+    const bCopy = makeMeta('b-copy');
+    const result = duplicateMap(index, metaB.key, bCopy);
     expect(result.maps.map(m => m.id)).toEqual(['a', 'b', 'b-copy', 'c']);
   });
 
-  it('sets activeMapId to the new meta id', () => {
-    const index = makeIndex(['a', 'b'], 'a');
-    const result = duplicateMap(index, 'a', makeMeta('a-copy'));
-    expect(result.activeMapId).toBe('a-copy');
+  it('sets activeKey to the new meta key', () => {
+    const metaA = makeMeta('a');
+    const metaB = makeMeta('b');
+    const index: MapIndex = { activeKey: metaA.key, maps: [metaA, metaB] };
+    const aCopy = makeMeta('a-copy');
+    const result = duplicateMap(index, metaA.key, aCopy);
+    expect(result.activeKey).toBe(aCopy.key);
   });
 
-  it('appends at end if sourceId not found', () => {
-    const index = makeIndex(['a', 'b'], 'a');
-    const result = duplicateMap(index, 'zzz', makeMeta('new'));
+  it('appends at end if sourceKey not found', () => {
+    const metaA = makeMeta('a');
+    const metaB = makeMeta('b');
+    const index: MapIndex = { activeKey: metaA.key, maps: [metaA, metaB] };
+    const newMeta = makeMeta('new');
+    const result = duplicateMap(index, 'zzz-not-a-key', newMeta);
     expect(result.maps.map(m => m.id)).toEqual(['a', 'b', 'new']);
   });
 
   it('inserts after last element when source is the last map', () => {
-    const index = makeIndex(['a', 'b'], 'a');
-    const result = duplicateMap(index, 'b', makeMeta('b-copy'));
+    const metaA = makeMeta('a');
+    const metaB = makeMeta('b');
+    const index: MapIndex = { activeKey: metaA.key, maps: [metaA, metaB] };
+    const bCopy = makeMeta('b-copy');
+    const result = duplicateMap(index, metaB.key, bCopy);
     expect(result.maps.map(m => m.id)).toEqual(['a', 'b', 'b-copy']);
   });
 
   it('inserts after first element when source is the first map', () => {
-    const index = makeIndex(['a', 'b', 'c'], 'b');
-    const result = duplicateMap(index, 'a', makeMeta('a-copy'));
+    const metaA = makeMeta('a');
+    const metaB = makeMeta('b');
+    const metaC = makeMeta('c');
+    const index: MapIndex = { activeKey: metaB.key, maps: [metaA, metaB, metaC] };
+    const aCopy = makeMeta('a-copy');
+    const result = duplicateMap(index, metaA.key, aCopy);
     expect(result.maps.map(m => m.id)).toEqual(['a', 'a-copy', 'b', 'c']);
   });
 
   it('does not mutate the original index', () => {
-    const index = makeIndex(['a', 'b'], 'a');
+    const metaA = makeMeta('a');
+    const metaB = makeMeta('b');
+    const index: MapIndex = { activeKey: metaA.key, maps: [metaA, metaB] };
     const originalMaps = index.maps;
-    duplicateMap(index, 'a', makeMeta('a-copy'));
+    duplicateMap(index, metaA.key, makeMeta('a-copy'));
     expect(index.maps).toBe(originalMaps);
     expect(index.maps.length).toBe(2);
-    expect(index.activeMapId).toBe('a');
+    expect(index.activeKey).toBe(metaA.key);
   });
 });

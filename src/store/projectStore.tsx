@@ -6,6 +6,7 @@ import React, {
   useEffect,
   useState,
   useRef,
+  useCallback,
 } from 'react';
 import { buildIndexes, type Indexes } from '../lib/indexes';
 import { createSeedMapData } from '../lib/maps';
@@ -18,10 +19,25 @@ export type { StoreState, Action, LineData, CreateTaskData, EditTaskData } from 
 
 const DEBOUNCE_MS = 800;
 
+/**
+ * View-only actions that pass through in read-only mode.
+ * All other actions are data-mutating and are dropped when readOnly is true.
+ */
+const VIEW_ONLY_ACTIONS = new Set<Action['type']>([
+  'OPEN_DETAIL',
+  'CLOSE_DETAIL',
+  'SET_HIGHLIGHT_LINE',
+  'SET_THEME',
+  'OPEN_MODAL',
+  'OPEN_EDIT_MODAL',
+  'CLOSE_MODAL',
+]);
+
 interface StoreContextValue {
   state: StoreState;
   indexes: Indexes;
   dispatch: React.Dispatch<Action>;
+  readOnly: boolean;
 }
 
 const StoreContext = createContext<StoreContextValue | null>(null);
@@ -30,11 +46,15 @@ const StoreContext = createContext<StoreContextValue | null>(null);
 function InitialisedStore({
   children,
   mapId,
+  owner,
+  readOnly,
   initial,
   initialVersion,
 }: {
   children: React.ReactNode;
   mapId: string;
+  owner: string;
+  readOnly: boolean;
   initial: PersistedState;
   initialVersion: number;
 }) {
@@ -50,12 +70,23 @@ function InitialisedStore({
     modalPreset: null,
   };
 
-  const [state, dispatch] = useReducer(reducer, initialState);
+  const [state, rawDispatch] = useReducer(reducer, initialState);
   const [stale, setStale] = useState(false);
 
   const indexes = useMemo(
     () => buildIndexes(state.stations, state.lines, state.edges),
     [state.stations, state.lines, state.edges],
+  );
+
+  // ── Read-only dispatch gate ─────────────────────────────────────────────────
+  // When readOnly is true, only view-only actions pass through; data-mutating
+  // actions are silently dropped so the store state can't be changed.
+  const dispatch = useCallback(
+    (action: Action) => {
+      if (readOnly && !VIEW_ONLY_ACTIONS.has(action.type)) return;
+      rawDispatch(action);
+    },
+    [readOnly],
   );
 
   // ── Version tracking ────────────────────────────────────────────────────────
@@ -79,6 +110,9 @@ function InitialisedStore({
   }, [stale]);
 
   useEffect(() => {
+    // Read-only maps never autosave.
+    if (readOnly) return;
+
     // On first render this effect fires for the initial state — skip it.
     if (isFirstRender.current) {
       isFirstRender.current = false;
@@ -117,12 +151,14 @@ function InitialisedStore({
         // Swallow network errors — autosave errors must not crash the app.
       });
     }, DEBOUNCE_MS);
-  }, [mapId, state.project, state.lines, state.stations, state.edges]);
+  }, [readOnly, mapId, state.project, state.lines, state.stations, state.edges]);
 
   // On unmount (incl. switching maps — the provider is keyed by mapId) flush any
   // pending debounced save immediately, so an edit made just before the switch
   // is not silently lost now that localStorage is no longer a fallback.
+  // Read-only maps skip this — they never have pending saves.
   useEffect(() => {
+    if (readOnly) return;
     return () => {
       if (saveTimerRef.current !== null) {
         clearTimeout(saveTimerRef.current);
@@ -136,15 +172,19 @@ function InitialisedStore({
         }
       }
     };
-  }, []);
+  }, [readOnly]);
 
   // ── Apply theme to body ─────────────────────────────────────────────────────
   useEffect(() => {
     document.body.dataset.theme = state.theme === 'dark' ? 'dark' : '';
   }, [state.theme]);
 
+  // Suppress unused variable warning: owner is passed as a prop for future use
+  // (e.g. displaying ownership info) but is not yet needed inside InitialisedStore.
+  void owner;
+
   return (
-    <StoreContext.Provider value={{ state, indexes, dispatch }}>
+    <StoreContext.Provider value={{ state, indexes, dispatch, readOnly }}>
       {stale && <MapChangedBanner />}
       {children}
     </StoreContext.Provider>
@@ -154,16 +194,24 @@ function InitialisedStore({
 // ── Outer: async loader ───────────────────────────────────────────────────────
 export function ProjectStoreProvider({
   children,
-  mapId,
+  owner,
+  id,
+  readOnly,
 }: {
   children: React.ReactNode;
-  mapId: string;
+  /** UUID of the map's owner (used to disambiguate the composite PK on shared maps). */
+  owner: string;
+  /** Slug id of the map. */
+  id: string;
+  /** True when the map is shared read-only (viewer mode). */
+  readOnly: boolean;
 }) {
-  // Track both which mapId we loaded for and its data+version, so we can detect
-  // stale data (mapId changed while a load was in flight) without calling
+  // Track both which map we loaded for and its data+version, so we can detect
+  // stale data (owner/id changed while a load was in flight) without calling
   // setState synchronously inside the effect body.
   const [loadedFor, setLoadedFor] = useState<{
-    mapId: string;
+    owner: string;
+    id: string;
     data: PersistedState;
     version: number;
   } | null>(null);
@@ -173,15 +221,16 @@ export function ProjectStoreProvider({
 
     async function load() {
       try {
-        const result = await mapsRepo.getMap(mapId);
+        const result = await mapsRepo.getMap(id, owner);
         if (ignore) return;
         setLoadedFor({
-          mapId,
+          owner,
+          id,
           data: result?.data ?? createSeedMapData(),
           version: result?.version ?? 0,
         });
       } catch {
-        if (!ignore) setLoadedFor({ mapId, data: createSeedMapData(), version: 0 });
+        if (!ignore) setLoadedFor({ owner, id, data: createSeedMapData(), version: 0 });
       }
     }
 
@@ -189,14 +238,14 @@ export function ProjectStoreProvider({
     return () => {
       ignore = true;
     };
-  }, [mapId]);
+  }, [owner, id]);
 
-  // While loading (or when the loaded data is for a different mapId), render
+  // While loading (or when the loaded data is for a different map), render
   // nothing to avoid a flash of stale/empty content.
-  if (loadedFor === null || loadedFor.mapId !== mapId) return null;
+  if (loadedFor === null || loadedFor.owner !== owner || loadedFor.id !== id) return null;
 
   return (
-    <InitialisedStore mapId={mapId} initial={loadedFor.data} initialVersion={loadedFor.version}>
+    <InitialisedStore mapId={id} owner={owner} readOnly={readOnly} initial={loadedFor.data} initialVersion={loadedFor.version}>
       {children}
     </InitialisedStore>
   );

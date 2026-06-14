@@ -9,13 +9,27 @@ export interface MapData {
 }
 
 export interface MapMeta {
+  /** Composite identifier: `"${owner}|${id}"`. Stable key for React and local storage. */
+  key: string;
   id: string;
+  owner: string;
   name: string;
+  /** True when the signed-in User is not the Owner (i.e. this is a shared, read-only map). */
+  readOnly: boolean;
 }
 
 export interface MapIndex {
-  activeMapId: string | null;
+  /** Composite key of the currently active map, or null when no maps exist. */
+  activeKey: string | null;
   maps: MapMeta[];
+}
+
+/**
+ * Build the composite key for a map from its owner UUID and slug id.
+ * UUIDs and slugs never contain `|`, so the separator is unambiguous.
+ */
+export function mapMetaKey(owner: string, id: string): string {
+  return `${owner}|${id}`;
 }
 
 export function genMapId(existing: string[], base?: string): string {
@@ -48,47 +62,47 @@ export function cloneMapData(data: MapData): MapData {
 
 export function addMap(index: MapIndex, meta: MapMeta): MapIndex {
   return {
-    activeMapId: meta.id,
+    activeKey: meta.key,
     maps: [...index.maps, meta],
   };
 }
 
-export function switchMap(index: MapIndex, id: string): MapIndex {
-  if (!index.maps.some(m => m.id === id)) return index;
-  return { ...index, activeMapId: id };
+export function switchMap(index: MapIndex, key: string): MapIndex {
+  if (!index.maps.some(m => m.key === key)) return index;
+  return { ...index, activeKey: key };
 }
 
-export function renameMap(index: MapIndex, id: string, name: string): MapIndex {
+export function renameMap(index: MapIndex, key: string, name: string): MapIndex {
   return {
     ...index,
-    maps: index.maps.map(m => m.id === id ? { ...m, name } : m),
+    maps: index.maps.map(m => m.key === key ? { ...m, name } : m),
   };
 }
 
-export function deleteMap(index: MapIndex, id: string): MapIndex {
-  const idx = index.maps.findIndex(m => m.id === id);
+export function deleteMap(index: MapIndex, key: string): MapIndex {
+  const idx = index.maps.findIndex(m => m.key === key);
   if (idx === -1) return index;
 
-  const newMaps = index.maps.filter(m => m.id !== id);
+  const newMaps = index.maps.filter(m => m.key !== key);
 
-  let newActiveMapId = index.activeMapId;
-  if (index.activeMapId === id) {
+  let newActiveKey = index.activeKey;
+  if (index.activeKey === key) {
     if (newMaps.length === 0) {
-      newActiveMapId = null;
+      newActiveKey = null;
     } else if (idx < newMaps.length) {
       // There is a map after the deleted one (now at same index)
-      newActiveMapId = newMaps[idx].id;
+      newActiveKey = newMaps[idx]!.key;
     } else {
       // Deleted was the last; pick the one before
-      newActiveMapId = newMaps[idx - 1].id;
+      newActiveKey = newMaps[idx - 1]!.key;
     }
   }
 
-  return { activeMapId: newActiveMapId, maps: newMaps };
+  return { activeKey: newActiveKey, maps: newMaps };
 }
 
-export function duplicateMap(index: MapIndex, sourceId: string, newMeta: MapMeta): MapIndex {
-  const sourceIdx = index.maps.findIndex(m => m.id === sourceId);
+export function duplicateMap(index: MapIndex, sourceKey: string, newMeta: MapMeta): MapIndex {
+  const sourceIdx = index.maps.findIndex(m => m.key === sourceKey);
   const insertAt = sourceIdx === -1 ? index.maps.length : sourceIdx + 1;
 
   const newMaps = [
@@ -97,5 +111,5 @@ export function duplicateMap(index: MapIndex, sourceId: string, newMeta: MapMeta
     ...index.maps.slice(insertAt),
   ];
 
-  return { activeMapId: newMeta.id, maps: newMaps };
+  return { activeKey: newMeta.key, maps: newMaps };
 }

@@ -3,12 +3,13 @@
  *
  * `../lib/mapsRepo` is mocked so no Supabase connection is needed. These tests
  * verify:
- *  - getMap is called on mount and its data initialises the reducer state
+ *  - getMap is called on mount with (id, owner) and its data initialises the reducer state
  *  - A user edit triggers a debounced saveMapData after the debounce delay
  *  - The initial loaded state is NOT saved (only real edits trigger saves)
- *  - Changing mapId remounts the store and reloads from the new map
+ *  - Changing owner/id remounts the store and reloads from the new map
  *  - A stale result from saveMapData stops further autosaves and shows the banner
  *  - Reload (reloadActiveMap) remounts the store via reloadNonce
+ *  - In read-only mode: saveMapData is never called, mutating dispatches are dropped
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, act, waitFor } from '@testing-library/react';
@@ -25,10 +26,10 @@ vi.mock('../lib/mapsRepo', () => ({
   saveMapData: (...args: Parameters<typeof mockSaveMapData>) => mockSaveMapData(...args),
   overwriteMapData: vi.fn().mockResolvedValue({ version: 2 }),
   listMaps: vi.fn().mockResolvedValue([]),
-  createMap: vi.fn().mockResolvedValue({ id: 'x', name: 'x', version: 1, updatedAt: '' }),
+  createMap: vi.fn().mockResolvedValue({ id: 'x', name: 'x', version: 1, updatedAt: '', owner: 'uid-owner' }),
   renameMap: vi.fn().mockResolvedValue(undefined),
   deleteMap: vi.fn().mockResolvedValue(undefined),
-  duplicateMap: vi.fn().mockResolvedValue({ id: 'x', name: 'x', version: 1, updatedAt: '' }),
+  duplicateMap: vi.fn().mockResolvedValue({ id: 'x', name: 'x', version: 1, updatedAt: '', owner: 'uid-owner' }),
 }));
 
 // ── Mock mapRegistry — provides reloadActiveMap used by MapChangedBanner ──────
@@ -37,7 +38,7 @@ const mockReloadActiveMap = vi.fn();
 
 vi.mock('./mapRegistry', () => ({
   useMapRegistry: () => ({
-    index: { activeMapId: 'map-1', maps: [] },
+    index: { activeKey: 'uid-owner|map-1', maps: [] },
     activeMeta: null,
     loading: false,
     reloadNonce: 0,
@@ -59,6 +60,8 @@ import { ProjectStoreProvider, useStore } from './projectStore';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
+const OWNER = 'uid-owner';
+
 function makeMapData(name: string): MapData {
   return {
     project: { name, subtitle: 'sub' },
@@ -70,11 +73,12 @@ function makeMapData(name: string): MapData {
 
 /** Probe component that exposes store state via data-testid. */
 function StoreProbe() {
-  const { state, dispatch } = useStore();
+  const { state, dispatch, readOnly } = useStore();
   return (
     <div>
       <span data-testid="projectName">{state.project.name}</span>
       <span data-testid="lineCount">{state.lines.length}</span>
+      <span data-testid="readOnly">{String(readOnly)}</span>
       <button
         data-testid="btn-add-line"
         onClick={() =>
@@ -86,13 +90,20 @@ function StoreProbe() {
       >
         add line
       </button>
+      <button
+        data-testid="btn-open-detail"
+        onClick={() => dispatch({ type: 'OPEN_DETAIL', id: 'some-station' })}
+      >
+        open detail
+      </button>
+      <span data-testid="selectedId">{state.selectedId ?? 'null'}</span>
     </div>
   );
 }
 
-function renderStore(mapId: string) {
+function renderStore(id: string, owner = OWNER, readOnly = false) {
   return render(
-    <ProjectStoreProvider mapId={mapId}>
+    <ProjectStoreProvider owner={owner} id={id} readOnly={readOnly}>
       <StoreProbe />
     </ProjectStoreProvider>,
   );
@@ -129,6 +140,18 @@ describe('ProjectStoreProvider — async load', () => {
     });
   });
 
+  it('calls getMap with (id, owner) for shared maps', async () => {
+    mockGetMap.mockResolvedValue({ data: makeMapData('Shared Map'), version: 1 });
+    const otherOwner = 'uid-other';
+
+    renderStore('shared-map', otherOwner, true);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('projectName').textContent).toBe('Shared Map');
+    });
+    expect(mockGetMap).toHaveBeenCalledWith('shared-map', otherOwner);
+  });
+
   it('falls back to seed data when getMap returns null', async () => {
     mockGetMap.mockResolvedValue(null);
 
@@ -151,10 +174,30 @@ describe('ProjectStoreProvider — async load', () => {
     });
     expect(screen.getByTestId('projectName').textContent!.length).toBeGreaterThan(0);
   });
+
+  it('exposes readOnly=false for owned maps', async () => {
+    mockGetMap.mockResolvedValue({ data: makeMapData('Mine'), version: 1 });
+
+    renderStore('map-1', OWNER, false);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('readOnly').textContent).toBe('false');
+    });
+  });
+
+  it('exposes readOnly=true for shared maps', async () => {
+    mockGetMap.mockResolvedValue({ data: makeMapData('Shared'), version: 1 });
+
+    renderStore('shared-map', 'uid-other', true);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('readOnly').textContent).toBe('true');
+    });
+  });
 });
 
-describe('ProjectStoreProvider — mapId changes', () => {
-  it('reloads from the new map when mapId prop changes', async () => {
+describe('ProjectStoreProvider — owner/id changes', () => {
+  it('reloads from the new map when owner/id props change', async () => {
     mockGetMap
       .mockResolvedValueOnce({ data: makeMapData('Map One'), version: 1 })
       .mockResolvedValueOnce({ data: makeMapData('Map Two'), version: 1 });
@@ -165,9 +208,9 @@ describe('ProjectStoreProvider — mapId changes', () => {
       expect(screen.getByTestId('projectName').textContent).toBe('Map One');
     });
 
-    // Switch to a different map.
+    // Switch to a different map (different owner + id).
     rerender(
-      <ProjectStoreProvider mapId="map-2">
+      <ProjectStoreProvider owner="uid-other" id="map-2" readOnly={true}>
         <StoreProbe />
       </ProjectStoreProvider>,
     );
@@ -177,8 +220,8 @@ describe('ProjectStoreProvider — mapId changes', () => {
     });
 
     expect(mockGetMap).toHaveBeenCalledTimes(2);
-    expect(mockGetMap).toHaveBeenNthCalledWith(1, 'map-1');
-    expect(mockGetMap).toHaveBeenNthCalledWith(2, 'map-2');
+    expect(mockGetMap).toHaveBeenNthCalledWith(1, 'map-1', OWNER);
+    expect(mockGetMap).toHaveBeenNthCalledWith(2, 'map-2', 'uid-other');
   });
 });
 
@@ -285,6 +328,87 @@ describe('ProjectStoreProvider — debounced autosave', () => {
 
     // Only one save should have fired.
     expect(mockSaveMapData).toHaveBeenCalledOnce();
+  });
+});
+
+// ── Tests — read-only mode (fake timers) ─────────────────────────────────────
+
+describe('ProjectStoreProvider — read-only mode', () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('never calls saveMapData even after a mutating dispatch attempt', async () => {
+    mockGetMap.mockResolvedValue({ data: makeMapData('Shared Map'), version: 1 });
+
+    renderStore('shared-map', 'uid-other', true);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('projectName').textContent).toBe('Shared Map');
+    });
+
+    // Try to mutate — CREATE_LINE is a mutating action.
+    act(() => { screen.getByTestId('btn-add-line').click(); });
+
+    // Advance well past the debounce window.
+    await act(async () => {
+      vi.advanceTimersByTime(2000);
+    });
+
+    // saveMapData must never be called for read-only maps.
+    expect(mockSaveMapData).not.toHaveBeenCalled();
+  });
+
+  it('drops mutating actions so state does not change', async () => {
+    mockGetMap.mockResolvedValue({ data: makeMapData('Shared Map'), version: 1 });
+
+    renderStore('shared-map', 'uid-other', true);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('lineCount').textContent).toBe('1');
+    });
+
+    // CREATE_LINE should be dropped.
+    act(() => { screen.getByTestId('btn-add-line').click(); });
+
+    // State must remain unchanged.
+    expect(screen.getByTestId('lineCount').textContent).toBe('1');
+  });
+
+  it('allows view-only actions (OPEN_DETAIL) to pass through in read-only mode', async () => {
+    mockGetMap.mockResolvedValue({ data: makeMapData('Shared Map'), version: 1 });
+
+    renderStore('shared-map', 'uid-other', true);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('projectName').textContent).toBe('Shared Map');
+    });
+
+    act(() => { screen.getByTestId('btn-open-detail').click(); });
+
+    // OPEN_DETAIL is view-only and must still update selectedId.
+    expect(screen.getByTestId('selectedId').textContent).toBe('some-station');
+  });
+
+  it('does not flush a save on unmount for read-only maps', async () => {
+    mockGetMap.mockResolvedValue({ data: makeMapData('Shared Map'), version: 1 });
+
+    const { unmount } = renderStore('shared-map', 'uid-other', true);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('projectName').textContent).toBe('Shared Map');
+    });
+
+    // Try to mutate (will be dropped by gated dispatch), then unmount.
+    act(() => { screen.getByTestId('btn-add-line').click(); });
+    act(() => { unmount(); });
+
+    // No save should ever be triggered for read-only maps.
+    expect(mockSaveMapData).not.toHaveBeenCalled();
   });
 });
 

@@ -16,8 +16,8 @@ export function MapSwitcher() {
   } = useMapRegistry();
 
   const [open, setOpen] = useState(false);
-  const [pendingDelete, setPendingDelete] = useState<{ id: string; name: string } | null>(null);
-  const [pendingReimport, setPendingReimport] = useState<{ id: string; name: string } | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<{ key: string; name: string } | null>(null);
+  const [pendingReimport, setPendingReimport] = useState<{ key: string; name: string } | null>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
 
   // Close on outside click and Escape
@@ -44,42 +44,42 @@ export function MapSwitcher() {
     };
   }, [open]);
 
-  function handleSelect(id: string) {
-    selectMap(id);
+  function handleSelect(key: string) {
+    selectMap(key);
     setOpen(false);
   }
 
-  function handleRename(id: string, currentName: string) {
+  function handleRename(key: string, currentName: string) {
     const name = window.prompt('Rename map', currentName);
     if (name && name.trim()) {
-      renameMapById(id, name.trim());
+      renameMapById(key, name.trim());
     }
   }
 
-  function handleDuplicate(id: string) {
-    duplicateMapById(id);
+  function handleDuplicate(key: string) {
+    duplicateMapById(key);
     setOpen(false);
   }
 
-  function handleDeleteRequest(id: string, name: string) {
-    setPendingDelete({ id, name });
+  function handleDeleteRequest(key: string, name: string) {
+    setPendingDelete({ key, name });
   }
 
   function handleDeleteConfirm() {
     if (pendingDelete) {
-      deleteMapById(pendingDelete.id);
+      deleteMapById(pendingDelete.key);
       setPendingDelete(null);
       setOpen(false);
     }
   }
 
-  function handleReimportRequest(id: string, name: string) {
-    setPendingReimport({ id, name });
+  function handleReimportRequest(key: string, name: string) {
+    setPendingReimport({ key, name });
   }
 
   function handleReimportConfirm() {
     if (pendingReimport) {
-      reimportMapById(pendingReimport.id);
+      reimportMapById(pendingReimport.key);
       setPendingReimport(null);
       setOpen(false);
     }
@@ -111,10 +111,10 @@ export function MapSwitcher() {
       {open && (
         <div className="map-menu" role="listbox" aria-label="Maps">
           {index.maps.map(m => {
-            const isActive = m.id === index.activeMapId;
+            const isActive = m.key === index.activeKey;
             return (
               <div
-                key={m.id}
+                key={m.key}
                 className={`map-menu-item${isActive ? ' active' : ''}`}
                 role="option"
                 aria-selected={isActive}
@@ -122,19 +122,19 @@ export function MapSwitcher() {
                 <button
                   className="map-menu-item-name"
                   type="button"
-                  onClick={() => handleSelect(m.id)}
+                  onClick={() => handleSelect(m.key)}
                 >
                   {isActive && <span className="map-menu-check" aria-hidden="true">✓</span>}
                   <span className="map-menu-item-label">{m.name}</span>
                 </button>
                 <div className="map-menu-item-actions">
-                  {reimportSourceFor(m.id) && (
+                  {reimportSourceFor(m.key) && (
                     <button
                       className="map-menu-icon-btn"
                       type="button"
                       title="Re-import from committed file"
                       aria-label={`Re-import "${m.name}"`}
-                      onClick={e => { e.stopPropagation(); handleReimportRequest(m.id, m.name); }}
+                      onClick={e => { e.stopPropagation(); handleReimportRequest(m.key, m.name); }}
                     >
                       ⟳
                     </button>
@@ -144,7 +144,7 @@ export function MapSwitcher() {
                     type="button"
                     title="Rename map"
                     aria-label={`Rename "${m.name}"`}
-                    onClick={e => { e.stopPropagation(); handleRename(m.id, m.name); }}
+                    onClick={e => { e.stopPropagation(); handleRename(m.key, m.name); }}
                   >
                     ✎
                   </button>
@@ -153,7 +153,7 @@ export function MapSwitcher() {
                     type="button"
                     title="Duplicate map"
                     aria-label={`Duplicate "${m.name}"`}
-                    onClick={e => { e.stopPropagation(); handleDuplicate(m.id); }}
+                    onClick={e => { e.stopPropagation(); handleDuplicate(m.key); }}
                   >
                     ⧉
                   </button>
@@ -162,7 +162,7 @@ export function MapSwitcher() {
                     type="button"
                     title="Delete map"
                     aria-label={`Delete "${m.name}"`}
-                    onClick={e => { e.stopPropagation(); handleDeleteRequest(m.id, m.name); }}
+                    onClick={e => { e.stopPropagation(); handleDeleteRequest(m.key, m.name); }}
                   >
                     ✕
                   </button>

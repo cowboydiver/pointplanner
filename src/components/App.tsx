@@ -44,11 +44,13 @@ function AppInner() {
 }
 
 function AppRoot() {
-  const { index, loading, reloadNonce, legacyImport, importLegacyMaps, dismissLegacyImport } = useMapRegistry();
+  const { index, activeMeta, loading, reloadNonce, legacyImport, importLegacyMaps, dismissLegacyImport } = useMapRegistry();
 
   // While the registry is fetching the map list (and seeding if needed), render
   // nothing to avoid a blank canvas flash.
   if (loading) return null;
+
+  const activeKey = index.activeKey;
 
   return (
     <>
@@ -59,10 +61,15 @@ function AppRoot() {
           onDismiss={dismissLegacyImport}
         />
       )}
-      {index.activeMapId === null ? (
+      {activeKey === null || activeMeta === null ? (
         <EmptyState />
       ) : (
-        <ProjectStoreProvider key={`${index.activeMapId}:${reloadNonce}`} mapId={index.activeMapId}>
+        <ProjectStoreProvider
+          key={`${activeKey}:${reloadNonce}`}
+          owner={activeMeta.owner}
+          id={activeMeta.id}
+          readOnly={activeMeta.readOnly}
+        >
           <AppInner />
         </ProjectStoreProvider>
       )}

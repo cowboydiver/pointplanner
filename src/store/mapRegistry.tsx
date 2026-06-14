@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import type { MapIndex, MapMeta, MapData } from '../lib/maps';
 import {
+  mapMetaKey,
   genMapId,
   createSeedMapData,
   createBlankMapData,
@@ -18,6 +19,7 @@ import { detectLegacyMaps, getLegacyImportDone, setLegacyImportDone } from '../l
 import type { LegacyMap } from '../lib/legacyMaps';
 
 // Lightweight UI pointer — only "which map was last active", not map data.
+// Now stores the composite key (`owner|id`) rather than the bare slug id.
 const ACTIVE_MAP_KEY = 'pointplanner.activeMapId';
 // Remembers which committed maps have already been cloud-seeded on this device.
 const SEEDED_KEY = 'pointplanner.committed-seeded';
@@ -30,12 +32,12 @@ function loadActivePointer(): string | null {
   }
 }
 
-function saveActivePointer(id: string | null): void {
+function saveActivePointer(key: string | null): void {
   try {
-    if (id === null) {
+    if (key === null) {
       localStorage.removeItem(ACTIVE_MAP_KEY);
     } else {
-      localStorage.setItem(ACTIVE_MAP_KEY, id);
+      localStorage.setItem(ACTIVE_MAP_KEY, key);
     }
   } catch {
     // ignore
@@ -63,13 +65,29 @@ function saveSeeded(seeded: Set<string>): void {
   }
 }
 
-function rowsToIndex(rows: MapRow[], activeId: string | null): MapIndex {
-  const maps: MapMeta[] = rows.map(r => ({ id: r.id, name: r.name }));
-  // Prefer the stored pointer if it's still valid; otherwise the most-recent map.
-  const validActive = activeId && maps.some(m => m.id === activeId)
-    ? activeId
-    : (maps[0]?.id ?? null);
-  return { activeMapId: validActive, maps };
+/**
+ * Convert DB rows to a MapIndex. Each row's `owner` is compared to the
+ * signed-in user's id (via `userIdRef`) to determine `readOnly`.
+ * Active selection is tracked by the composite key (`owner|id`).
+ */
+function rowsToIndex(
+  rows: MapRow[],
+  activeKey: string | null,
+  userId: string | null | undefined,
+): MapIndex {
+  const maps: MapMeta[] = rows.map(r => ({
+    key: mapMetaKey(r.owner, r.id),
+    id: r.id,
+    owner: r.owner,
+    name: r.name,
+    readOnly: r.owner !== userId,
+  }));
+  // Prefer the stored pointer if it's still valid (matches a composite key);
+  // otherwise fall back to the first (most recently updated) map.
+  const validActive = activeKey && maps.some(m => m.key === activeKey)
+    ? activeKey
+    : (maps[0]?.key ?? null);
+  return { activeKey: validActive, maps };
 }
 
 /** Non-null when legacy maps exist and the user has not yet decided. */
@@ -84,14 +102,14 @@ interface MapRegistryContextValue {
   // Bumped on re-import so the active map's store provider remounts.
   reloadNonce: number;
   createMap: (name: string) => void;
-  selectMap: (id: string) => void;
-  renameMapById: (id: string, name: string) => void;
-  deleteMapById: (id: string) => void;
-  duplicateMapById: (id: string) => void;
+  selectMap: (key: string) => void;
+  renameMapById: (key: string, name: string) => void;
+  deleteMapById: (key: string) => void;
+  duplicateMapById: (key: string) => void;
   // Committed file id (e.g. `roadmap`) this map can re-sync from, or null.
-  reimportSourceFor: (id: string) => string | null;
+  reimportSourceFor: (key: string) => string | null;
   // Replace a committed-backed map's cloud data with the committed file.
-  reimportMapById: (id: string) => void;
+  reimportMapById: (key: string) => void;
   // Force-reload the active map (bumps reloadNonce so the store provider remounts).
   reloadActiveMap: () => void;
   // Non-null while the user has not yet responded to the legacy-import prompt.
@@ -111,7 +129,7 @@ export function MapRegistryProvider({
   children: React.ReactNode;
   userId?: string | null;
 }) {
-  const [index, setIndex] = useState<MapIndex>({ activeMapId: null, maps: [] });
+  const [index, setIndex] = useState<MapIndex>({ activeKey: null, maps: [] });
   const [loading, setLoading] = useState(true);
   const [reloadNonce, setReloadNonce] = useState(0);
   // Pending legacy maps to import — set after boot when detected.
@@ -176,7 +194,7 @@ export function MapRegistryProvider({
           }
 
           const pointer = loadActivePointer();
-          const idx = rowsToIndex(rows, pointer);
+          const idx = rowsToIndex(rows, pointer, userIdRef.current);
           setIndex(idx);
 
           // ── Detect legacy localStorage maps (once per account) ───────────────
@@ -209,23 +227,23 @@ export function MapRegistryProvider({
     };
   }, []);
 
-  // Persist the active map pointer whenever it changes
+  // Persist the active map composite key whenever it changes.
   useEffect(() => {
     if (!loading) {
-      saveActivePointer(index.activeMapId);
+      saveActivePointer(index.activeKey);
     }
-  }, [index.activeMapId, loading]);
+  }, [index.activeKey, loading]);
 
-  const activeMeta = index.activeMapId
-    ? (index.maps.find(m => m.id === index.activeMapId) ?? null)
+  const activeMeta = index.activeKey
+    ? (index.maps.find(m => m.key === index.activeKey) ?? null)
     : null;
 
-  async function refreshList(newActiveId?: string): Promise<void> {
+  async function refreshList(newActiveKey?: string): Promise<void> {
     try {
       const rows = await mapsRepo.listMaps();
       if (!mountedRef.current) return;
-      const pointer = newActiveId ?? index.activeMapId;
-      setIndex(rowsToIndex(rows, pointer ?? null));
+      const pointer = newActiveKey ?? index.activeKey;
+      setIndex(rowsToIndex(rows, pointer ?? null, userIdRef.current));
     } catch {
       // ignore — leave current state intact
     }
@@ -237,67 +255,90 @@ export function MapRegistryProvider({
     const data = createBlankMapData(name);
     mapsRepo.createMap(id, name, data).then(row => {
       if (!mountedRef.current) return;
+      const newKey = mapMetaKey(row.owner, row.id);
       setIndex(prev => ({
-        activeMapId: row.id,
-        maps: [...prev.maps, { id: row.id, name: row.name }],
+        activeKey: newKey,
+        maps: [...prev.maps, {
+          key: newKey,
+          id: row.id,
+          owner: row.owner,
+          name: row.name,
+          readOnly: false,
+        }],
       }));
     }).catch(() => {
       // ignore
     });
   }
 
-  function selectMap(id: string): void {
-    setIndex(prev => switchMap(prev, id));
+  function selectMap(key: string): void {
+    setIndex(prev => switchMap(prev, key));
   }
 
-  function renameMapById(id: string, name: string): void {
+  function renameMapById(key: string, name: string): void {
+    const meta = index.maps.find(m => m.key === key);
+    if (!meta) return;
     // Optimistically update local state; fire-and-forget the remote rename.
-    setIndex(prev => renameMap(prev, id, name));
-    mapsRepo.renameMap(id, name).catch(() => {
+    setIndex(prev => renameMap(prev, key, name));
+    mapsRepo.renameMap(meta.id, name).catch(() => {
       // On failure, refresh to get the server's current name.
       void refreshList();
     });
   }
 
-  function deleteMapById(id: string): void {
+  function deleteMapById(key: string): void {
+    const meta = index.maps.find(m => m.key === key);
+    if (!meta) return;
     // Compute the next active map before removing it from local state.
-    const nextIndex = deleteMap(index, id);
+    const nextIndex = deleteMap(index, key);
     setIndex(nextIndex);
-    mapsRepo.deleteMap(id).catch(() => {
+    mapsRepo.deleteMap(meta.id).catch(() => {
       void refreshList();
     });
   }
 
-  function duplicateMapById(id: string): void {
-    const sourceName = index.maps.find(m => m.id === id)?.name ?? 'Map';
+  function duplicateMapById(key: string): void {
+    const meta = index.maps.find(m => m.key === key);
+    if (!meta) return;
     const existingIds = index.maps.map(m => m.id);
-    const newId = genMapId(existingIds, sourceName + ' copy');
-    const newName = sourceName + ' copy';
-    mapsRepo.duplicateMap(id, newId, newName).then(row => {
+    const newId = genMapId(existingIds, meta.name + ' copy');
+    const newName = meta.name + ' copy';
+    mapsRepo.duplicateMap(meta.id, newId, newName).then(row => {
       if (!mountedRef.current) return;
-      setIndex(prev => duplicateMapIndex(prev, id, { id: row.id, name: row.name }));
+      const newMeta: MapMeta = {
+        key: mapMetaKey(row.owner, row.id),
+        id: row.id,
+        owner: row.owner,
+        name: row.name,
+        readOnly: false,
+      };
+      setIndex(prev => duplicateMapIndex(prev, key, newMeta));
     }).catch(() => {
       // ignore
     });
   }
 
-  function reimportSourceFor(id: string): string | null {
-    const fileId = committedSourceId(id);
+  function reimportSourceFor(key: string): string | null {
+    const meta = index.maps.find(m => m.key === key);
+    if (!meta) return null;
+    const fileId = committedSourceId(meta.id);
     if (fileId === null) return null;
     return getCommittedMapById(fileId) ? fileId : null;
   }
 
-  function reimportMapById(id: string): void {
-    const fileId = committedSourceId(id);
+  function reimportMapById(key: string): void {
+    const meta = index.maps.find(m => m.key === key);
+    if (!meta) return;
+    const fileId = committedSourceId(meta.id);
     if (fileId === null) return;
     const committed = getCommittedMapById(fileId);
     if (!committed) return;
     Promise.all([
-      mapsRepo.overwriteMapData(id, cloneMapData(committed.data as MapData)),
-      mapsRepo.renameMap(id, committed.name),
+      mapsRepo.overwriteMapData(meta.id, cloneMapData(committed.data as MapData)),
+      mapsRepo.renameMap(meta.id, committed.name),
     ]).then(() => {
       if (!mountedRef.current) return;
-      setIndex(prev => renameMap(prev, id, committed.name));
+      setIndex(prev => renameMap(prev, key, committed.name));
       setReloadNonce(n => n + 1);
     }).catch(() => {
       // ignore
