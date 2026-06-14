@@ -12,6 +12,7 @@
     "generate-map": "tsx scripts/generate-map.ts"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.108.1",
     "react": "^19.2.6",
     "react-dom": "^19.2.6"
   },

@@ -40,6 +40,18 @@ seed data (src/data/seed.ts)
 
 Grid constants (do not change without updating tests): `PAD_X=96, COL=152, PAD_Y=92, ROW=94, CORNER_RADIUS=18`.
 
+Everything in `src/lib/` is pure (no React, no I/O) — including `localImport.ts`, the `localStorage` detection helpers for the one-time #17 import (they take a `Storage` double). The one exception that previously lived here, the cloud **data-access layer**, now lives in `src/data/` (see below).
+
+### Data-access layer (`src/data/`)
+
+I/O-bearing modules that talk to Supabase live here, kept separate from the pure `src/lib/` logic. The React layer and tests go through these typed module surfaces rather than touching the Supabase client directly; their unit tests mock the client.
+
+| File | What it does |
+|---|---|
+| `seed.ts` | The sample "Q3 Product Launch" project used to seed a new account's demo map |
+| `supabase.ts` | The single `supabase-js` client (reads `VITE_SUPABASE_*` env) + `isSupabaseConfigured()` |
+| `mapsRepo.ts` | Cloud data-access layer over Supabase (maps + shares CRUD, role resolution, version-guarded saves) |
+
 ### Store actions
 
 `DO_ACTION(id, 'start'|'done'|'reopen')` mutates a single station's status then runs `recompute` over the whole graph. `CREATE_TASK` calls `placeNewStation`, builds new edges with `df=true` if the prereq is on a different row, pushes the station, then recomputes.

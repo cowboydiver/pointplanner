@@ -22,6 +22,26 @@ npm install
 npm run dev      # start the dev server
 ```
 
+## Environment variables
+
+PointPlanner gates the app behind passwordless sign-in backed by [Supabase](https://supabase.com).
+Copy `.env.example` to `.env` (or `.env.local`) and supply your project credentials:
+
+| Variable | Description |
+| --- | --- |
+| `VITE_SUPABASE_URL` | Your Supabase project URL |
+| `VITE_SUPABASE_ANON_KEY` | The project's public anon key |
+
+These are public client-side keys but should not be committed (`.env` / `*.local` are git-ignored).
+If they are absent the app still builds and runs, but the sign-in screen shows a "not configured" notice.
+
+### Sign-in flow
+
+A signed-out visitor sees a sign-in screen. Enter an email to receive a one-time code / magic link
+(`signInWithOtp`), then enter the emailed code to sign in (`verifyOtp`, `type: 'email'`). Clicking the
+magic link works too via `detectSessionInUrl`. Sessions persist across reloads; the topbar **Sign out**
+control returns you to the sign-in screen. Maps remain in `localStorage` for now.
+
 ## Scripts
 
 | Command | Description |
