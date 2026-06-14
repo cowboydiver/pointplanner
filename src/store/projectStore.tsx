@@ -10,6 +10,7 @@ import React, {
 import { buildIndexes, type Indexes } from '../lib/indexes';
 import { createSeedMapData } from '../lib/maps';
 import { reducer, type StoreState, type PersistedState, type Action } from './reducer';
+import { MapChangedBanner } from '../components/MapChangedBanner';
 import * as mapsRepo from '../lib/mapsRepo';
 
 // Re-export the store's public types so existing imports from this module keep working.
@@ -30,10 +31,12 @@ function InitialisedStore({
   children,
   mapId,
   initial,
+  initialVersion,
 }: {
   children: React.ReactNode;
   mapId: string;
   initial: PersistedState;
+  initialVersion: number;
 }) {
   const initialState: StoreState = {
     ...initial,
@@ -48,11 +51,17 @@ function InitialisedStore({
   };
 
   const [state, dispatch] = useReducer(reducer, initialState);
+  const [stale, setStale] = useState(false);
 
   const indexes = useMemo(
     () => buildIndexes(state.stations, state.lines, state.edges),
     [state.stations, state.lines, state.edges],
   );
+
+  // ── Version tracking ────────────────────────────────────────────────────────
+  // Holds the version that was last successfully saved (or loaded). Used as the
+  // expectedVersion in the next optimistic-concurrency save.
+  const versionRef = useRef<number>(initialVersion);
 
   // ── Debounced autosave ──────────────────────────────────────────────────────
   // We skip saving the initial loaded state: track whether this is the first
@@ -62,6 +71,12 @@ function InitialisedStore({
   // Latest persisted data + the map it belongs to, so the unmount flush below
   // can save the most recent edit even though it runs with empty deps.
   const latestRef = useRef<{ mapId: string; data: PersistedState } | null>(null);
+  // Mirror stale into a ref so the unmount flush can read it without a closure.
+  const staleRef = useRef(false);
+
+  useEffect(() => {
+    staleRef.current = stale;
+  }, [stale]);
 
   useEffect(() => {
     // On first render this effect fires for the initial state — skip it.
@@ -69,6 +84,9 @@ function InitialisedStore({
       isFirstRender.current = false;
       return;
     }
+
+    // When stale, stop scheduling further autosaves.
+    if (staleRef.current) return;
 
     const persisted: PersistedState = {
       project: state.project,
@@ -78,17 +96,25 @@ function InitialisedStore({
     };
     latestRef.current = { mapId, data: persisted };
 
-    // Cancel any pending save and schedule a new one. (No cleanup here: the
-    // reschedule clears the prior timer above, and the unmount flush below
-    // owns teardown — clearing in a per-render cleanup would defeat both the
-    // debounce and the flush.)
+    // Cancel any pending save and schedule a new one.
     if (saveTimerRef.current !== null) {
       clearTimeout(saveTimerRef.current);
     }
     saveTimerRef.current = setTimeout(() => {
       saveTimerRef.current = null;
-      mapsRepo.saveMapData(mapId, persisted).catch(() => {
-        // Swallow — autosave errors must not crash the app.
+      // Double-check stale in case it was set while the timer was pending.
+      if (staleRef.current) return;
+      const expectedVersion = versionRef.current;
+      mapsRepo.saveMapData(mapId, persisted, expectedVersion).then(result => {
+        if (result.status === 'saved') {
+          versionRef.current = result.version;
+        } else {
+          // status === 'stale': another Editor saved first.
+          staleRef.current = true;
+          setStale(true);
+        }
+      }).catch(() => {
+        // Swallow network errors — autosave errors must not crash the app.
       });
     }, DEBOUNCE_MS);
   }, [mapId, state.project, state.lines, state.stations, state.edges]);
@@ -102,8 +128,9 @@ function InitialisedStore({
         clearTimeout(saveTimerRef.current);
         saveTimerRef.current = null;
         const latest = latestRef.current;
-        if (latest) {
-          mapsRepo.saveMapData(latest.mapId, latest.data).catch(() => {
+        // Don't flush if we're already stale — would be rejected anyway.
+        if (latest && !staleRef.current) {
+          mapsRepo.saveMapData(latest.mapId, latest.data, versionRef.current).catch(() => {
             // Swallow — autosave errors must not crash the app.
           });
         }
@@ -118,6 +145,7 @@ function InitialisedStore({
 
   return (
     <StoreContext.Provider value={{ state, indexes, dispatch }}>
+      {stale && <MapChangedBanner />}
       {children}
     </StoreContext.Provider>
   );
@@ -131,12 +159,13 @@ export function ProjectStoreProvider({
   children: React.ReactNode;
   mapId: string;
 }) {
-  // Track both which mapId we loaded for and its data, so we can detect stale
-  // data (mapId changed while a load was in flight) without calling setState
-  // synchronously inside the effect body.
+  // Track both which mapId we loaded for and its data+version, so we can detect
+  // stale data (mapId changed while a load was in flight) without calling
+  // setState synchronously inside the effect body.
   const [loadedFor, setLoadedFor] = useState<{
     mapId: string;
     data: PersistedState;
+    version: number;
   } | null>(null);
 
   useEffect(() => {
@@ -146,9 +175,13 @@ export function ProjectStoreProvider({
       try {
         const result = await mapsRepo.getMap(mapId);
         if (ignore) return;
-        setLoadedFor({ mapId, data: result?.data ?? createSeedMapData() });
+        setLoadedFor({
+          mapId,
+          data: result?.data ?? createSeedMapData(),
+          version: result?.version ?? 0,
+        });
       } catch {
-        if (!ignore) setLoadedFor({ mapId, data: createSeedMapData() });
+        if (!ignore) setLoadedFor({ mapId, data: createSeedMapData(), version: 0 });
       }
     }
 
@@ -163,7 +196,7 @@ export function ProjectStoreProvider({
   if (loadedFor === null || loadedFor.mapId !== mapId) return null;
 
   return (
-    <InitialisedStore mapId={mapId} initial={loadedFor.data}>
+    <InitialisedStore mapId={mapId} initial={loadedFor.data} initialVersion={loadedFor.version}>
       {children}
     </InitialisedStore>
   );

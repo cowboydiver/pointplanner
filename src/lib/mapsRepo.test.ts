@@ -70,6 +70,7 @@ import {
   getMap,
   createMap,
   saveMapData,
+  overwriteMapData,
   renameMap,
   deleteMap,
   duplicateMap,
@@ -189,12 +190,25 @@ describe('createMap', () => {
 // ── saveMapData ───────────────────────────────────────────────────────────────
 
 describe('saveMapData', () => {
-  it('updates data + bumps version and returns the new version number', async () => {
+  it('sends .eq("version", expectedVersion) in the query chain', async () => {
     queueResult({ data: [{ version: 4 }], error: null });
 
-    const result = await saveMapData('map-1', sampleData);
+    await saveMapData('map-1', sampleData, 3);
 
-    expect(result).toEqual({ version: 4 });
+    const call = getCall();
+    // There are two .eq() calls: one for id, one for version.
+    const eqOps = call.ops.filter(o => o.method === 'eq');
+    const versionEq = eqOps.find(o => o.args[0] === 'version');
+    expect(versionEq).toBeDefined();
+    expect(versionEq!.args).toEqual(['version', 3]);
+  });
+
+  it('returns {status:"saved", version} when a row comes back', async () => {
+    queueResult({ data: [{ version: 4 }], error: null });
+
+    const result = await saveMapData('map-1', sampleData, 3);
+
+    expect(result).toEqual({ status: 'saved', version: 4 });
     const call = getCall();
     expect(call.table).toBe('maps');
     const updateOp = findOp(call, 'update');
@@ -207,16 +221,60 @@ describe('saveMapData', () => {
     expect(payload.updated_at).toBeUndefined();
   });
 
-  it('scopes the update to the correct map id', async () => {
-    queueResult({ data: [{ version: 2 }], error: null });
-    await saveMapData('my-map', sampleData);
-    const eqOp = findOp(getCall(), 'eq');
-    expect(eqOp?.args).toEqual(['id', 'my-map']);
+  it('returns {status:"stale"} when result rows are empty (version mismatch)', async () => {
+    queueResult({ data: [], error: null });
+
+    const result = await saveMapData('map-1', sampleData, 3);
+
+    expect(result).toEqual({ status: 'stale' });
   });
 
-  it('throws when supabase returns an error', async () => {
+  it('scopes the update to the correct map id', async () => {
+    queueResult({ data: [{ version: 2 }], error: null });
+    await saveMapData('my-map', sampleData, 1);
+    const eqOps = getCall().ops.filter(o => o.method === 'eq');
+    const idEq = eqOps.find(o => o.args[0] === 'id');
+    expect(idEq?.args).toEqual(['id', 'my-map']);
+  });
+
+  it('throws on supabase error', async () => {
     queueResult({ data: null, error: { message: 'update failed' } });
-    await expect(saveMapData('x', sampleData)).rejects.toThrow('update failed');
+    await expect(saveMapData('x', sampleData, 1)).rejects.toThrow('update failed');
+  });
+});
+
+// ── overwriteMapData ──────────────────────────────────────────────────────────
+
+describe('overwriteMapData', () => {
+  it('issues an unconditional update (no version eq) and returns the new version', async () => {
+    queueResult({ data: [{ version: 5 }], error: null });
+
+    const result = await overwriteMapData('map-1', sampleData);
+
+    expect(result).toEqual({ version: 5 });
+    const call = getCall();
+    expect(call.table).toBe('maps');
+    const updateOp = findOp(call, 'update');
+    expect(updateOp).toBeDefined();
+    const payload = updateOp!.args[0] as Record<string, unknown>;
+    expect(payload.data).toBe(sampleData);
+    // No version eq filter — unconditional overwrite.
+    const eqOps = call.ops.filter(o => o.method === 'eq');
+    const versionEq = eqOps.find(o => o.args[0] === 'version');
+    expect(versionEq).toBeUndefined();
+  });
+
+  it('scopes the update to the correct map id', async () => {
+    queueResult({ data: [{ version: 3 }], error: null });
+    await overwriteMapData('target-map', sampleData);
+    const eqOps = getCall().ops.filter(o => o.method === 'eq');
+    const idEq = eqOps.find(o => o.args[0] === 'id');
+    expect(idEq?.args).toEqual(['id', 'target-map']);
+  });
+
+  it('throws on supabase error', async () => {
+    queueResult({ data: null, error: { message: 'overwrite failed' } });
+    await expect(overwriteMapData('x', sampleData)).rejects.toThrow('overwrite failed');
   });
 });
 

@@ -32,6 +32,11 @@ export interface MapDataWithVersion {
   version: number;
 }
 
+/** Result of a version-guarded save. */
+export type SaveResult =
+  | { status: 'saved'; version: number }
+  | { status: 'stale' };
+
 // ── Internal helpers ──────────────────────────────────────────────────────────
 
 interface DbRow {
@@ -109,16 +114,39 @@ export async function createMap(
 }
 
 /**
- * Autosave: update the map's data blob. The `maps_touch` BEFORE UPDATE trigger
- * (see migration 0001) atomically bumps `version` by 1 and sets
- * `updated_at = now()` server-side — we only send the new `data`, because
- * PostgREST treats update payloads as literal values and would not evaluate a
- * `version + 1` expression sent from the client. Returns the new version.
+ * Autosave with optimistic concurrency: updates the map's data blob only when
+ * the row's current `version` matches `expectedVersion`. The `maps_touch`
+ * BEFORE UPDATE trigger atomically bumps `version` and sets `updated_at`.
  *
- * Note: This is an unconditional update (no stale-write version check). The
- * optimistic concurrency guard described in ADR-0002 is issue #18 — not here.
+ * Returns `{ status: 'saved', version }` on success, or `{ status: 'stale' }`
+ * when the server's version no longer matches (another Editor saved first).
+ * Throws on actual Supabase errors.
  */
 export async function saveMapData(
+  id: string,
+  data: MapData,
+  expectedVersion: number,
+): Promise<SaveResult> {
+  const sb = getSupabaseClient();
+  const { data: rows, error } = await sb
+    .from('maps')
+    .update({ data })
+    .eq('id', id)
+    .eq('version', expectedVersion)
+    .select('version');
+
+  throwOnError(error);
+  const matched = rows as Array<{ version: number }> | null;
+  if (!matched || matched.length === 0) return { status: 'stale' };
+  return { status: 'saved', version: matched[0]!.version };
+}
+
+/**
+ * Unconditional overwrite: updates the map's data blob without a version check.
+ * Used by re-import (which intentionally discards any concurrent edits).
+ * Returns the new version assigned by the DB trigger.
+ */
+export async function overwriteMapData(
   id: string,
   data: MapData,
 ): Promise<{ version: number }> {

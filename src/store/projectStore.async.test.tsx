@@ -7,6 +7,8 @@
  *  - A user edit triggers a debounced saveMapData after the debounce delay
  *  - The initial loaded state is NOT saved (only real edits trigger saves)
  *  - Changing mapId remounts the store and reloads from the new map
+ *  - A stale result from saveMapData stops further autosaves and shows the banner
+ *  - Reload (reloadActiveMap) remounts the store via reloadNonce
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, act, waitFor } from '@testing-library/react';
@@ -21,6 +23,7 @@ const mockSaveMapData = vi.fn();
 vi.mock('../lib/mapsRepo', () => ({
   getMap: (...args: Parameters<typeof mockGetMap>) => mockGetMap(...args),
   saveMapData: (...args: Parameters<typeof mockSaveMapData>) => mockSaveMapData(...args),
+  overwriteMapData: vi.fn().mockResolvedValue({ version: 2 }),
   listMaps: vi.fn().mockResolvedValue([]),
   createMap: vi.fn().mockResolvedValue({ id: 'x', name: 'x', version: 1, updatedAt: '' }),
   renameMap: vi.fn().mockResolvedValue(undefined),
@@ -28,7 +31,30 @@ vi.mock('../lib/mapsRepo', () => ({
   duplicateMap: vi.fn().mockResolvedValue({ id: 'x', name: 'x', version: 1, updatedAt: '' }),
 }));
 
+// ── Mock mapRegistry — provides reloadActiveMap used by MapChangedBanner ──────
+
+const mockReloadActiveMap = vi.fn();
+
+vi.mock('./mapRegistry', () => ({
+  useMapRegistry: () => ({
+    index: { activeMapId: 'map-1', maps: [] },
+    activeMeta: null,
+    loading: false,
+    reloadNonce: 0,
+    createMap: vi.fn(),
+    selectMap: vi.fn(),
+    renameMapById: vi.fn(),
+    deleteMapById: vi.fn(),
+    duplicateMapById: vi.fn(),
+    reimportSourceFor: vi.fn().mockReturnValue(null),
+    reimportMapById: vi.fn(),
+    reloadActiveMap: mockReloadActiveMap,
+  }),
+  MapRegistryProvider: ({ children }: { children: React.ReactNode }) => children,
+}));
+
 // ── Import subject after mocks ────────────────────────────────────────────────
+import React from 'react';
 import { ProjectStoreProvider, useStore } from './projectStore';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -76,7 +102,8 @@ function renderStore(mapId: string) {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mockSaveMapData.mockResolvedValue({ version: 2 });
+  mockSaveMapData.mockResolvedValue({ status: 'saved', version: 2 });
+  mockReloadActiveMap.mockReset();
 });
 
 // ── Tests — async load (real timers) ─────────────────────────────────────────
@@ -209,7 +236,7 @@ describe('ProjectStoreProvider — debounced autosave', () => {
     });
 
     expect(mockSaveMapData).toHaveBeenCalledOnce();
-    expect(mockSaveMapData).toHaveBeenCalledWith('map-1', expect.any(Object));
+    expect(mockSaveMapData).toHaveBeenCalledWith('map-1', expect.any(Object), expect.any(Number));
   });
 
   it('flushes a pending edit immediately when the store unmounts', async () => {
@@ -229,7 +256,7 @@ describe('ProjectStoreProvider — debounced autosave', () => {
 
     // The pending edit must be flushed on unmount, not discarded.
     expect(mockSaveMapData).toHaveBeenCalledOnce();
-    expect(mockSaveMapData).toHaveBeenCalledWith('map-1', expect.any(Object));
+    expect(mockSaveMapData).toHaveBeenCalledWith('map-1', expect.any(Object), expect.any(Number));
   });
 
   it('debounces rapid edits into a single save', async () => {
@@ -258,5 +285,94 @@ describe('ProjectStoreProvider — debounced autosave', () => {
 
     // Only one save should have fired.
     expect(mockSaveMapData).toHaveBeenCalledOnce();
+  });
+});
+
+// ── Tests — stale detection (fake timers) ─────────────────────────────────────
+
+describe('ProjectStoreProvider — stale detection', () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('shows the MapChangedBanner when saveMapData resolves {status:"stale"}', async () => {
+    mockGetMap.mockResolvedValue({ data: makeMapData('Test Map'), version: 5 });
+    mockSaveMapData.mockResolvedValue({ status: 'stale' });
+
+    renderStore('map-1');
+
+    await waitFor(() => {
+      expect(screen.getByTestId('projectName').textContent).toBe('Test Map');
+    });
+
+    // Make an edit to trigger autosave.
+    act(() => { screen.getByTestId('btn-add-line').click(); });
+
+    // Advance past the debounce window.
+    await act(async () => { vi.advanceTimersByTime(1000); });
+
+    // The banner should be visible.
+    await waitFor(() => {
+      expect(screen.getByRole('alert')).toBeInTheDocument();
+      expect(screen.getByRole('alert').textContent).toContain('reload to continue');
+    });
+  });
+
+  it('stops scheduling further autosaves after a stale result', async () => {
+    mockGetMap.mockResolvedValue({ data: makeMapData('Test Map'), version: 5 });
+    mockSaveMapData.mockResolvedValue({ status: 'stale' });
+
+    renderStore('map-1');
+
+    await waitFor(() => {
+      expect(screen.getByTestId('projectName').textContent).toBe('Test Map');
+    });
+
+    // First edit: triggers a save that resolves stale.
+    act(() => { screen.getByTestId('btn-add-line').click(); });
+    await act(async () => { vi.advanceTimersByTime(1000); });
+
+    // Wait for the banner to confirm stale was detected.
+    await waitFor(() => {
+      expect(screen.getByRole('alert')).toBeInTheDocument();
+    });
+
+    const saveCallsAfterStale = mockSaveMapData.mock.calls.length;
+
+    // Make another edit.
+    act(() => { screen.getByTestId('btn-add-line').click(); });
+    await act(async () => { vi.advanceTimersByTime(1000); });
+
+    // No additional saveMapData calls — stale store must not hammer the server.
+    expect(mockSaveMapData).toHaveBeenCalledTimes(saveCallsAfterStale);
+  });
+
+  it('Reload button calls reloadActiveMap from map registry', async () => {
+    mockGetMap.mockResolvedValue({ data: makeMapData('Test Map'), version: 5 });
+    mockSaveMapData.mockResolvedValue({ status: 'stale' });
+
+    renderStore('map-1');
+
+    await waitFor(() => {
+      expect(screen.getByTestId('projectName').textContent).toBe('Test Map');
+    });
+
+    act(() => { screen.getByTestId('btn-add-line').click(); });
+    await act(async () => { vi.advanceTimersByTime(1000); });
+
+    await waitFor(() => {
+      expect(screen.getByRole('alert')).toBeInTheDocument();
+    });
+
+    // Click the Reload button in the banner.
+    act(() => { screen.getByRole('button', { name: /reload/i }).click(); });
+
+    // reloadActiveMap must have been called — it bumps reloadNonce which causes
+    // the parent AppRoot to remount the ProjectStoreProvider (clean load).
+    expect(mockReloadActiveMap).toHaveBeenCalledOnce();
   });
 });

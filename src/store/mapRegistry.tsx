@@ -85,6 +85,8 @@ interface MapRegistryContextValue {
   reimportSourceFor: (id: string) => string | null;
   // Replace a committed-backed map's cloud data with the committed file.
   reimportMapById: (id: string) => void;
+  // Force-reload the active map (bumps reloadNonce so the store provider remounts).
+  reloadActiveMap: () => void;
 }
 
 const MapRegistryContext = createContext<MapRegistryContextValue | null>(null);
@@ -258,7 +260,7 @@ export function MapRegistryProvider({ children }: { children: React.ReactNode })
     const committed = getCommittedMapById(fileId);
     if (!committed) return;
     Promise.all([
-      mapsRepo.saveMapData(id, cloneMapData(committed.data as MapData)),
+      mapsRepo.overwriteMapData(id, cloneMapData(committed.data as MapData)),
       mapsRepo.renameMap(id, committed.name),
     ]).then(() => {
       if (!mountedRef.current) return;
@@ -267,6 +269,10 @@ export function MapRegistryProvider({ children }: { children: React.ReactNode })
     }).catch(() => {
       // ignore
     });
+  }
+
+  function reloadActiveMap(): void {
+    setReloadNonce(n => n + 1);
   }
 
   const value: MapRegistryContextValue = {
@@ -281,6 +287,7 @@ export function MapRegistryProvider({ children }: { children: React.ReactNode })
     duplicateMapById,
     reimportSourceFor,
     reimportMapById,
+    reloadActiveMap,
   };
 
   return (

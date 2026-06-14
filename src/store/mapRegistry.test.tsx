@@ -18,6 +18,7 @@ const mockListMaps = vi.fn();
 const mockGetMap = vi.fn();
 const mockCreateMap = vi.fn();
 const mockSaveMapData = vi.fn();
+const mockOverwriteMapData = vi.fn();
 const mockRenameMap = vi.fn();
 const mockDeleteMap = vi.fn();
 const mockDuplicateMap = vi.fn();
@@ -26,7 +27,9 @@ vi.mock('../lib/mapsRepo', () => ({
   listMaps: () => mockListMaps(),
   getMap: (id: string) => mockGetMap(id),
   createMap: (id: string, name: string, data: MapData) => mockCreateMap(id, name, data),
-  saveMapData: (id: string, data: MapData) => mockSaveMapData(id, data),
+  saveMapData: (id: string, data: MapData, expectedVersion: number) =>
+    mockSaveMapData(id, data, expectedVersion),
+  overwriteMapData: (id: string, data: MapData) => mockOverwriteMapData(id, data),
   renameMap: (id: string, name: string) => mockRenameMap(id, name),
   deleteMap: (id: string) => mockDeleteMap(id),
   duplicateMap: (sourceId: string, newId: string, newName: string) =>
@@ -113,7 +116,8 @@ beforeEach(() => {
   mockGetCommittedMaps.mockReturnValue([]);
   mockGetCommittedMapById.mockReturnValue(null);
   // Default happy-path implementations.
-  mockSaveMapData.mockResolvedValue({ version: 2 });
+  mockSaveMapData.mockResolvedValue({ status: 'saved', version: 2 });
+  mockOverwriteMapData.mockResolvedValue({ version: 2 });
   mockRenameMap.mockResolvedValue(undefined);
   mockDeleteMap.mockResolvedValue(undefined);
   // Clear localStorage keys used by the registry.
@@ -400,11 +404,11 @@ describe('MapRegistryProvider — reimport', () => {
     expect(screen.getByTestId('reimportSource').textContent).toBe('roadmap');
   });
 
-  it('reimportMapById saves cloud data and renames the map', async () => {
+  it('reimportMapById overwrites cloud data (unconditional) and renames the map', async () => {
     mockListMaps.mockResolvedValue([makeRow('committed-roadmap', 'Roadmap')]);
     mockGetCommittedMaps.mockReturnValue([]);
     mockGetCommittedMapById.mockReturnValue(makeCommitted('roadmap', 'Roadmap'));
-    mockSaveMapData.mockResolvedValue({ version: 2 });
+    mockOverwriteMapData.mockResolvedValue({ version: 2 });
     mockRenameMap.mockResolvedValue(undefined);
 
     renderRegistry();
@@ -415,11 +419,13 @@ describe('MapRegistryProvider — reimport', () => {
     });
 
     await waitFor(() => {
-      expect(mockSaveMapData).toHaveBeenCalledWith(
+      expect(mockOverwriteMapData).toHaveBeenCalledWith(
         'committed-roadmap',
         expect.any(Object),
       );
     });
     expect(mockRenameMap).toHaveBeenCalledWith('committed-roadmap', 'Roadmap');
+    // saveMapData must NOT be called — reimport uses overwriteMapData instead.
+    expect(mockSaveMapData).not.toHaveBeenCalled();
   });
 });
