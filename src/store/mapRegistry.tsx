@@ -1,118 +1,25 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import type { MapIndex, MapMeta, MapData } from '../lib/maps';
-import {
-  genMapId,
-  createSeedMapData,
-  createBlankMapData,
-  cloneMapData,
-  addMap,
-  switchMap,
-  renameMap,
-  deleteMap,
-  duplicateMap,
-} from '../lib/maps';
-import { getCommittedMaps, getCommittedMapById } from '../lib/committedMaps';
-import { COMMITTED_ID_PREFIX, mapDataKey, committedSourceId, reimportCommittedMapData } from './committedReimport';
+import type { MapIndex, MapMeta } from '../lib/maps';
+import { createSeedMapData, chooseInitialMap } from '../lib/maps';
+import * as repo from '../lib/mapsRepo';
 
-const REGISTRY_KEY = 'pointplanner.index';
-// Remembers which committed maps have already been copied into localStorage, so
-// a committed map the user later deletes is not silently re-seeded.
-const SEEDED_KEY = 'pointplanner.committed-seeded';
-
-function loadIndex(): MapIndex {
-  try {
-    const raw = localStorage.getItem(REGISTRY_KEY);
-    if (raw) {
-      const parsed = JSON.parse(raw) as MapIndex;
-      if (
-        parsed &&
-        typeof parsed.activeMapId !== 'undefined' &&
-        Array.isArray(parsed.maps)
-      ) {
-        return parsed;
-      }
-    }
-  } catch {
-    // ignore
-  }
-
-  // Bootstrap: no valid index found — create a single default map from seed.
-  const data = createSeedMapData();
-  const id = genMapId([], data.project.name);
-  try {
-    localStorage.setItem(mapDataKey(id), JSON.stringify(data));
-  } catch {
-    // ignore
-  }
-  return { activeMapId: id, maps: [{ id, name: data.project.name }] };
-}
-
-function loadSeeded(): Set<string> {
-  try {
-    const raw = localStorage.getItem(SEEDED_KEY);
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed)) return new Set(parsed.filter(x => typeof x === 'string'));
-    }
-  } catch {
-    // ignore
-  }
-  return new Set();
-}
-
-function saveSeeded(seeded: Set<string>): void {
-  try {
-    localStorage.setItem(SEEDED_KEY, JSON.stringify([...seeded]));
-  } catch {
-    // ignore
-  }
-}
-
-// Copy any not-yet-seeded committed maps into editable localStorage maps and
-// append them to the index. Runs once per committed map (tracked in SEEDED_KEY)
-// so user edits/deletes stick. Does not touch the existing seed/blank bootstrap.
-function seedCommittedMaps(index: MapIndex): MapIndex {
-  const committed = getCommittedMaps();
-  if (committed.length === 0) return index;
-
-  const seeded = loadSeeded();
-  let next = index;
-  let changed = false;
-
-  for (const c of committed) {
-    if (seeded.has(c.id)) continue;
-    const mapId = COMMITTED_ID_PREFIX + c.id;
-    seeded.add(c.id);
-    try {
-      // Seed the editable copy only if one isn't already present.
-      if (localStorage.getItem(mapDataKey(mapId)) === null) {
-        localStorage.setItem(mapDataKey(mapId), JSON.stringify(cloneMapData(c.data as MapData)));
-      }
-    } catch {
-      // ignore
-    }
-    if (!next.maps.some(m => m.id === mapId)) {
-      next = { ...next, maps: [...next.maps, { id: mapId, name: c.name }] };
-      changed = true;
-    }
-  }
-
-  saveSeeded(seeded);
-  return changed ? next : index;
-}
+const SEED_NAME = 'PointPlanner Demo';
 
 interface MapRegistryContextValue {
   index: MapIndex;
   activeMeta: MapMeta | null;
-  // Bumped on re-import so the active map's store provider remounts and re-reads
-  // the freshly overwritten localStorage data.
+  // True while the initial owned-map list is being fetched/seeded.
+  loading: boolean;
+  // Bumped to force the active map's store provider to remount. Retained for
+  // API compatibility with App.tsx; cloud reimport is a no-op (see below) so it
+  // is effectively constant in this slice.
   reloadNonce: number;
   createMap: (name: string) => void;
   selectMap: (id: string) => void;
   renameMapById: (id: string, name: string) => void;
   deleteMapById: (id: string) => void;
   duplicateMapById: (id: string) => void;
-  // Committed file id (e.g. `roadmap`) this map can re-sync from, or null.
+  // Committed file id this map can re-sync from, or null.
   reimportSourceFor: (id: string) => string | null;
   // Replace a committed-backed map's editable copy with the committed file.
   reimportMapById: (id: string) => void;
@@ -121,106 +28,134 @@ interface MapRegistryContextValue {
 const MapRegistryContext = createContext<MapRegistryContextValue | null>(null);
 
 export function MapRegistryProvider({ children }: { children: React.ReactNode }) {
-  const [index, setIndex] = useState<MapIndex>(() => seedCommittedMaps(loadIndex()));
-  const [reloadNonce, setReloadNonce] = useState(0);
+  const [index, setIndex] = useState<MapIndex>({ activeMapId: null, maps: [] });
+  const [loading, setLoading] = useState(true);
+  // Cloud maps don't use the localStorage reimport/remount mechanism, but
+  // App.tsx still keys the store provider on it; keep it stable.
+  const [reloadNonce] = useState(0);
 
-  // Persist index whenever it changes
+  // Bootstrap: fetch the user's owned maps. If they have none, seed the demo
+  // map. The user is guaranteed signed in here — this provider lives inside the
+  // AuthGate. localStorage is no longer consulted.
   useEffect(() => {
-    try {
-      localStorage.setItem(REGISTRY_KEY, JSON.stringify(index));
-    } catch {
-      // ignore
-    }
-  }, [index]);
+    let active = true;
+    (async () => {
+      try {
+        let maps = await repo.listMaps();
+        const { needsSeed } = chooseInitialMap(maps);
+        if (needsSeed) {
+          const meta = await repo.createMap(SEED_NAME, createSeedMapData());
+          maps = [meta];
+        }
+        if (!active) return;
+        const { activeMapId } = chooseInitialMap(maps);
+        setIndex({ activeMapId, maps });
+      } catch (err) {
+        if (!active) return;
+        console.error('Failed to load maps', err);
+        setIndex({ activeMapId: null, maps: [] });
+      } finally {
+        if (active) setLoading(false);
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const activeMeta = index.activeMapId
     ? (index.maps.find(m => m.id === index.activeMapId) ?? null)
     : null;
 
   function createMap(name: string): void {
-    const existingIds = index.maps.map(m => m.id);
-    const id = genMapId(existingIds, name);
-    const data = createBlankMapData(name);
-    try {
-      localStorage.setItem(mapDataKey(id), JSON.stringify(data));
-    } catch {
-      // ignore
-    }
-    setIndex(prev => addMap(prev, { id, name }));
+    void (async () => {
+      try {
+        const meta = await repo.createMap(name, createSeedMapData());
+        setIndex(prev => ({ activeMapId: meta.id, maps: [meta, ...prev.maps] }));
+      } catch (err) {
+        console.error('Failed to create map', err);
+      }
+    })();
   }
 
   function selectMap(id: string): void {
-    setIndex(prev => switchMap(prev, id));
+    setIndex(prev =>
+      prev.maps.some(m => m.id === id) ? { ...prev, activeMapId: id } : prev,
+    );
   }
 
   function renameMapById(id: string, name: string): void {
-    // Registry meta only — do NOT touch the map data key
-    setIndex(prev => renameMap(prev, id, name));
+    void (async () => {
+      try {
+        await repo.renameMap(id, name);
+        setIndex(prev => ({
+          ...prev,
+          maps: prev.maps.map(m => (m.id === id ? { ...m, name } : m)),
+        }));
+      } catch (err) {
+        console.error('Failed to rename map', err);
+      }
+    })();
   }
 
   function deleteMapById(id: string): void {
-    setIndex(prev => deleteMap(prev, id));
-    try {
-      localStorage.removeItem(mapDataKey(id));
-    } catch {
-      // ignore
-    }
+    void (async () => {
+      try {
+        await repo.deleteMap(id);
+        setIndex(prev => {
+          const idx = prev.maps.findIndex(m => m.id === id);
+          if (idx === -1) return prev;
+          const maps = prev.maps.filter(m => m.id !== id);
+          let activeMapId = prev.activeMapId;
+          if (prev.activeMapId === id) {
+            activeMapId = maps.length === 0
+              ? null
+              : (maps[idx] ?? maps[idx - 1]).id;
+          }
+          return { activeMapId, maps };
+        });
+      } catch (err) {
+        console.error('Failed to delete map', err);
+      }
+    })();
   }
 
   function duplicateMapById(id: string): void {
-    let sourceData = createSeedMapData();
-    try {
-      const raw = localStorage.getItem(mapDataKey(id));
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        if (parsed && parsed.project && parsed.lines && parsed.stations && parsed.edges) {
-          sourceData = parsed;
-        }
+    void (async () => {
+      try {
+        const meta = await repo.duplicateMap(id);
+        setIndex(prev => {
+          const idx = prev.maps.findIndex(m => m.id === id);
+          const insertAt = idx === -1 ? prev.maps.length : idx + 1;
+          const maps = [
+            ...prev.maps.slice(0, insertAt),
+            meta,
+            ...prev.maps.slice(insertAt),
+          ];
+          return { activeMapId: meta.id, maps };
+        });
+      } catch (err) {
+        console.error('Failed to duplicate map', err);
       }
-    } catch {
-      // ignore
-    }
-
-    const sourceName = index.maps.find(m => m.id === id)?.name ?? 'Map';
-    const existingIds = index.maps.map(m => m.id);
-    const newId = genMapId(existingIds, sourceName + ' copy');
-    const newName = sourceName + ' copy';
-
-    try {
-      localStorage.setItem(mapDataKey(newId), JSON.stringify(cloneMapData(sourceData)));
-    } catch {
-      // ignore
-    }
-
-    setIndex(prev => duplicateMap(prev, id, { id: newId, name: newName }));
+    })();
   }
 
-  function reimportSourceFor(id: string): string | null {
-    const fileId = committedSourceId(id);
-    if (fileId === null) return null;
-    // Only offer re-import when the committed file still exists.
-    return getCommittedMapById(fileId) ? fileId : null;
+  // Committed-file reimport was a localStorage-only feature (copying a bundled
+  // map into an editable localStorage copy). Cloud maps have no such source, so
+  // these are intentionally inert in this slice; the committedMaps/committedReimport
+  // modules and their tests are left in place but no longer wired here.
+  function reimportSourceFor(): string | null {
+    return null;
   }
 
-  function reimportMapById(id: string): void {
-    const fileId = committedSourceId(id);
-    if (fileId === null) return;
-    const committed = getCommittedMapById(fileId);
-    if (!committed) return;
-    try {
-      reimportCommittedMapData(localStorage, id, committed);
-    } catch {
-      // ignore
-    }
-    // Keep the registry name in sync with the committed file, then force the
-    // active store provider to remount so the live view reflects the new data.
-    setIndex(prev => renameMap(prev, id, committed.name));
-    setReloadNonce(n => n + 1);
+  function reimportMapById(): void {
+    // no-op for cloud maps (see comment above)
   }
 
   const value: MapRegistryContextValue = {
     index,
     activeMeta,
+    loading,
     reloadNonce,
     createMap,
     selectMap,

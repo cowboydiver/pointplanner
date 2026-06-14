@@ -10,6 +10,7 @@ import {
   renameMap,
   deleteMap,
   duplicateMap,
+  chooseInitialMap,
 } from './maps';
 import type { MapIndex, MapMeta } from './maps';
 
@@ -27,6 +28,23 @@ function makeIndex(ids: string[], activeId: string | null = null): MapIndex {
 function makeMeta(id: string, name = `Map ${id}`): MapMeta {
   return { id, name };
 }
+
+// ---------------------------------------------------------------------------
+// chooseInitialMap
+// ---------------------------------------------------------------------------
+
+describe('chooseInitialMap', () => {
+  it('flags an empty list as needing the demo seed', () => {
+    expect(chooseInitialMap([])).toEqual({ activeMapId: null, needsSeed: true });
+  });
+
+  it('activates the first map and does not seed when maps exist', () => {
+    expect(chooseInitialMap([makeMeta('a'), makeMeta('b')])).toEqual({
+      activeMapId: 'a',
+      needsSeed: false,
+    });
+  });
+});
 
 // ---------------------------------------------------------------------------
 // genMapId

@@ -44,7 +44,11 @@ function AppInner() {
 }
 
 function AppRoot() {
-  const { index, reloadNonce } = useMapRegistry();
+  const { index, reloadNonce, loading } = useMapRegistry();
+
+  if (loading) {
+    return <div className="auth-loading">Loading…</div>;
+  }
 
   if (index.activeMapId === null) {
     return <EmptyState />;

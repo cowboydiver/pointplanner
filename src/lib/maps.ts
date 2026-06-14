@@ -33,6 +33,19 @@ export function createSeedMapData(): MapData {
   return structuredClone({ project: PROJECT, lines: LINES, stations: STATIONS, edges: EDGES });
 }
 
+/**
+ * Decide, from a fetched map list, which map should be active and whether the
+ * account needs the demo seed map created. Pure so the registry's bootstrap
+ * logic can be unit-tested without React effects (issue #16).
+ */
+export function chooseInitialMap(maps: MapMeta[]): {
+  activeMapId: string | null;
+  needsSeed: boolean;
+} {
+  if (maps.length === 0) return { activeMapId: null, needsSeed: true };
+  return { activeMapId: maps[0].id, needsSeed: false };
+}
+
 export function createBlankMapData(name: string): MapData {
   return {
     project: { name, subtitle: '' },
