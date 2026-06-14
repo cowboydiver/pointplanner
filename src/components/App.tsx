@@ -1,13 +1,14 @@
 import { useEffect } from 'react';
 import { ProjectStoreProvider, useStore } from '../store/projectStore';
 import { MapRegistryProvider, useMapRegistry } from '../store/mapRegistry';
-import { AuthProvider } from '../auth/AuthProvider';
+import { AuthProvider, useAuth } from '../auth/AuthProvider';
 import { Topbar } from './Topbar';
 import { Legend } from './Legend';
 import { TransitMap } from './TransitMap';
 import { DetailPanel } from './DetailPanel';
 import { CreateModal } from './CreateModal';
 import { EmptyState } from './EmptyState';
+import { LegacyImportPrompt } from './LegacyImportPrompt';
 
 function AppInner() {
   const { state, dispatch } = useStore();
@@ -43,29 +44,45 @@ function AppInner() {
 }
 
 function AppRoot() {
-  const { index, loading, reloadNonce } = useMapRegistry();
+  const { index, loading, reloadNonce, legacyImport, importLegacyMaps, dismissLegacyImport } = useMapRegistry();
 
   // While the registry is fetching the map list (and seeding if needed), render
   // nothing to avoid a blank canvas flash.
   if (loading) return null;
 
-  if (index.activeMapId === null) {
-    return <EmptyState />;
-  }
-
   return (
-    <ProjectStoreProvider key={`${index.activeMapId}:${reloadNonce}`} mapId={index.activeMapId}>
-      <AppInner />
-    </ProjectStoreProvider>
+    <>
+      {legacyImport !== null && (
+        <LegacyImportPrompt
+          count={legacyImport.count}
+          onImport={importLegacyMaps}
+          onDismiss={dismissLegacyImport}
+        />
+      )}
+      {index.activeMapId === null ? (
+        <EmptyState />
+      ) : (
+        <ProjectStoreProvider key={`${index.activeMapId}:${reloadNonce}`} mapId={index.activeMapId}>
+          <AppInner />
+        </ProjectStoreProvider>
+      )}
+    </>
+  );
+}
+
+function AppWithAuth() {
+  const { session } = useAuth();
+  return (
+    <MapRegistryProvider userId={session?.user.id}>
+      <AppRoot />
+    </MapRegistryProvider>
   );
 }
 
 export function App() {
   return (
     <AuthProvider>
-      <MapRegistryProvider>
-        <AppRoot />
-      </MapRegistryProvider>
+      <AppWithAuth />
     </AuthProvider>
   );
 }

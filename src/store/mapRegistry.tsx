@@ -14,6 +14,8 @@ import { getCommittedMaps, getCommittedMapById } from '../lib/committedMaps';
 import { COMMITTED_ID_PREFIX, committedSourceId } from './committedReimport';
 import * as mapsRepo from '../lib/mapsRepo';
 import type { MapRow } from '../lib/mapsRepo';
+import { detectLegacyMaps, getLegacyImportDone, setLegacyImportDone } from '../lib/legacyMaps';
+import type { LegacyMap } from '../lib/legacyMaps';
 
 // Lightweight UI pointer — only "which map was last active", not map data.
 const ACTIVE_MAP_KEY = 'pointplanner.activeMapId';
@@ -70,6 +72,11 @@ function rowsToIndex(rows: MapRow[], activeId: string | null): MapIndex {
   return { activeMapId: validActive, maps };
 }
 
+/** Non-null when legacy maps exist and the user has not yet decided. */
+export interface PendingLegacyImport {
+  count: number;
+}
+
 interface MapRegistryContextValue {
   index: MapIndex;
   activeMeta: MapMeta | null;
@@ -87,16 +94,33 @@ interface MapRegistryContextValue {
   reimportMapById: (id: string) => void;
   // Force-reload the active map (bumps reloadNonce so the store provider remounts).
   reloadActiveMap: () => void;
+  // Non-null while the user has not yet responded to the legacy-import prompt.
+  legacyImport: PendingLegacyImport | null;
+  // Import all detected legacy maps into the cloud, then mark done.
+  importLegacyMaps: () => void;
+  // Decline the import and mark done so the prompt never reappears.
+  dismissLegacyImport: () => void;
 }
 
 const MapRegistryContext = createContext<MapRegistryContextValue | null>(null);
 
-export function MapRegistryProvider({ children }: { children: React.ReactNode }) {
+export function MapRegistryProvider({
+  children,
+  userId,
+}: {
+  children: React.ReactNode;
+  userId?: string | null;
+}) {
   const [index, setIndex] = useState<MapIndex>({ activeMapId: null, maps: [] });
   const [loading, setLoading] = useState(true);
   const [reloadNonce, setReloadNonce] = useState(0);
+  // Pending legacy maps to import — set after boot when detected.
+  const [pendingLegacy, setPendingLegacy] = useState<LegacyMap[] | null>(null);
   // Prevent state updates after unmount
   const mountedRef = useRef(true);
+  // Capture userId at mount time so the boot effect can read it without it
+  // being a reactive dependency (boot is intentionally one-shot).
+  const userIdRef = useRef(userId);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -154,6 +178,15 @@ export function MapRegistryProvider({ children }: { children: React.ReactNode })
           const pointer = loadActivePointer();
           const idx = rowsToIndex(rows, pointer);
           setIndex(idx);
+
+          // ── Detect legacy localStorage maps (once per account) ───────────────
+          if (!getLegacyImportDone(userIdRef.current)) {
+            const legacy = detectLegacyMaps(localStorage);
+            if (legacy.length > 0) {
+              setPendingLegacy(legacy);
+            }
+          }
+
           setLoading(false);
         }
       } catch {
@@ -275,6 +308,36 @@ export function MapRegistryProvider({ children }: { children: React.ReactNode })
     setReloadNonce(n => n + 1);
   }
 
+  async function importLegacyMaps(): Promise<void> {
+    if (!pendingLegacy || pendingLegacy.length === 0) return;
+
+    // Collect all existing cloud ids so we can generate collision-free ids.
+    const existingIds = index.maps.map(m => m.id);
+
+    for (const legacy of pendingLegacy) {
+      const newId = genMapId(existingIds, legacy.name);
+      existingIds.push(newId);
+      try {
+        await mapsRepo.createMap(newId, legacy.name, cloneMapData(legacy.data));
+      } catch {
+        // Non-fatal: skip this map if creation fails.
+      }
+    }
+
+    setLegacyImportDone(userIdRef.current);
+    setPendingLegacy(null);
+    // Refresh the cloud list so imported maps appear.
+    await refreshList();
+  }
+
+  function dismissLegacyImport(): void {
+    setLegacyImportDone(userIdRef.current);
+    setPendingLegacy(null);
+  }
+
+  const legacyImport: PendingLegacyImport | null =
+    pendingLegacy !== null ? { count: pendingLegacy.length } : null;
+
   const value: MapRegistryContextValue = {
     index,
     activeMeta,
@@ -288,6 +351,9 @@ export function MapRegistryProvider({ children }: { children: React.ReactNode })
     reimportSourceFor,
     reimportMapById,
     reloadActiveMap,
+    legacyImport,
+    importLegacyMaps,
+    dismissLegacyImport,
   };
 
   return (

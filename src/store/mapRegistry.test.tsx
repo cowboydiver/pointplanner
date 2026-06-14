@@ -10,6 +10,7 @@ import '@testing-library/jest-dom';
 import type { MapRow } from '../lib/mapsRepo';
 import type { CommittedMap } from '../lib/committedMaps';
 import type { MapData } from '../lib/maps';
+import type { LegacyMap } from '../lib/legacyMaps';
 
 // ── Mocks ────────────────────────────────────────────────────────────────────
 
@@ -45,6 +46,17 @@ vi.mock('../lib/committedMaps', () => ({
   getCommittedMapById: (id: string) => mockGetCommittedMapById(id),
 }));
 
+// Mock legacyMaps — return no legacy maps by default (tests override as needed).
+const mockDetectLegacyMaps = vi.fn();
+const mockGetLegacyImportDone = vi.fn();
+const mockSetLegacyImportDone = vi.fn();
+
+vi.mock('../lib/legacyMaps', () => ({
+  detectLegacyMaps: (storage: Pick<Storage, 'getItem'>) => mockDetectLegacyMaps(storage),
+  getLegacyImportDone: (userId: string | null | undefined) => mockGetLegacyImportDone(userId),
+  setLegacyImportDone: (userId: string | null | undefined) => mockSetLegacyImportDone(userId),
+}));
+
 // ── Import subject after mocks ────────────────────────────────────────────────
 import { MapRegistryProvider, useMapRegistry } from './mapRegistry';
 
@@ -67,6 +79,10 @@ function makeCommitted(id: string, name: string): CommittedMap {
   return { id, name, data: makeMapData(name) };
 }
 
+function makeLegacyMap(id: string, name: string): LegacyMap {
+  return { id, name, data: makeMapData(name) };
+}
+
 /** A probe component that renders the registry state as data-testid attributes. */
 function RegistryProbe() {
   const {
@@ -80,6 +96,9 @@ function RegistryProbe() {
     duplicateMapById,
     reimportSourceFor,
     reimportMapById,
+    legacyImport,
+    importLegacyMaps,
+    dismissLegacyImport,
   } = useMapRegistry();
 
   return (
@@ -96,6 +115,9 @@ function RegistryProbe() {
       <button data-testid="btn-duplicate" onClick={() => duplicateMapById('map-1')}>duplicate</button>
       <span data-testid="reimportSource">{reimportSourceFor('committed-roadmap') ?? 'null'}</span>
       <button data-testid="btn-reimport" onClick={() => reimportMapById('committed-roadmap')}>reimport</button>
+      <span data-testid="legacyImportCount">{legacyImport !== null ? String(legacyImport.count) : 'null'}</span>
+      <button data-testid="btn-import-legacy" onClick={() => void importLegacyMaps()}>import legacy</button>
+      <button data-testid="btn-dismiss-legacy" onClick={() => dismissLegacyImport()}>dismiss legacy</button>
     </div>
   );
 }
@@ -115,6 +137,10 @@ beforeEach(() => {
   // Default: no committed maps.
   mockGetCommittedMaps.mockReturnValue([]);
   mockGetCommittedMapById.mockReturnValue(null);
+  // Default: no legacy maps and import already done (so legacy tests are opt-in).
+  mockDetectLegacyMaps.mockReturnValue([]);
+  mockGetLegacyImportDone.mockReturnValue(true);
+  mockSetLegacyImportDone.mockReturnValue(undefined);
   // Default happy-path implementations.
   mockSaveMapData.mockResolvedValue({ status: 'saved', version: 2 });
   mockOverwriteMapData.mockResolvedValue({ version: 2 });
@@ -427,5 +453,177 @@ describe('MapRegistryProvider — reimport', () => {
     expect(mockRenameMap).toHaveBeenCalledWith('committed-roadmap', 'Roadmap');
     // saveMapData must NOT be called — reimport uses overwriteMapData instead.
     expect(mockSaveMapData).not.toHaveBeenCalled();
+  });
+});
+
+// ── Legacy import ─────────────────────────────────────────────────────────────
+
+describe('MapRegistryProvider — legacy import detection', () => {
+  it('exposes legacyImport.count when legacy maps are detected and marker is not set', async () => {
+    mockListMaps.mockResolvedValue([makeRow('map-1', 'Alpha')]);
+    mockGetLegacyImportDone.mockReturnValue(false);
+    mockDetectLegacyMaps.mockReturnValue([
+      makeLegacyMap('legacy-1', 'Old Map A'),
+      makeLegacyMap('legacy-2', 'Old Map B'),
+    ]);
+
+    renderRegistry();
+    await waitFor(() => expect(screen.getByTestId('loading').textContent).toBe('false'));
+
+    expect(screen.getByTestId('legacyImportCount').textContent).toBe('2');
+  });
+
+  it('legacyImport is null when the marker is already set', async () => {
+    mockListMaps.mockResolvedValue([makeRow('map-1', 'Alpha')]);
+    mockGetLegacyImportDone.mockReturnValue(true);  // already done
+    mockDetectLegacyMaps.mockReturnValue([makeLegacyMap('legacy-1', 'Old Map A')]);
+
+    renderRegistry();
+    await waitFor(() => expect(screen.getByTestId('loading').textContent).toBe('false'));
+
+    expect(screen.getByTestId('legacyImportCount').textContent).toBe('null');
+  });
+
+  it('legacyImport is null when no legacy maps are detected', async () => {
+    mockListMaps.mockResolvedValue([makeRow('map-1', 'Alpha')]);
+    mockGetLegacyImportDone.mockReturnValue(false);
+    mockDetectLegacyMaps.mockReturnValue([]);
+
+    renderRegistry();
+    await waitFor(() => expect(screen.getByTestId('loading').textContent).toBe('false'));
+
+    expect(screen.getByTestId('legacyImportCount').textContent).toBe('null');
+  });
+});
+
+describe('MapRegistryProvider — importLegacyMaps', () => {
+  it('calls createMap once per legacy map with collision-free ids and sets the marker', async () => {
+    mockListMaps.mockResolvedValue([makeRow('map-1', 'Alpha')]);
+    mockGetLegacyImportDone.mockReturnValue(false);
+    mockDetectLegacyMaps.mockReturnValue([
+      makeLegacyMap('legacy-1', 'Old Map A'),
+      makeLegacyMap('legacy-2', 'Old Map B'),
+    ]);
+    const importedRowA = makeRow('old-map-a', 'Old Map A');
+    const importedRowB = makeRow('old-map-b', 'Old Map B');
+    mockCreateMap
+      .mockResolvedValueOnce(importedRowA)
+      .mockResolvedValueOnce(importedRowB);
+    // listMaps called again after import to refresh
+    mockListMaps.mockResolvedValueOnce([makeRow('map-1', 'Alpha')]).mockResolvedValueOnce([
+      makeRow('map-1', 'Alpha'),
+      importedRowA,
+      importedRowB,
+    ]);
+
+    renderRegistry();
+    await waitFor(() => expect(screen.getByTestId('loading').textContent).toBe('false'));
+
+    await act(async () => {
+      screen.getByTestId('btn-import-legacy').click();
+    });
+
+    await waitFor(() => {
+      expect(mockCreateMap).toHaveBeenCalledTimes(2);
+    });
+
+    // Each call uses a generated id (not the legacy id) and correct name + data
+    expect(mockCreateMap).toHaveBeenCalledWith(
+      expect.any(String),
+      'Old Map A',
+      expect.objectContaining({ project: expect.objectContaining({ name: 'Old Map A' }) }),
+    );
+    expect(mockCreateMap).toHaveBeenCalledWith(
+      expect.any(String),
+      'Old Map B',
+      expect.objectContaining({ project: expect.objectContaining({ name: 'Old Map B' }) }),
+    );
+
+    // The two generated ids must differ (no collision)
+    const [callA, callB] = mockCreateMap.mock.calls as [string, ...unknown[]][];
+    expect(callA![0]).not.toBe(callB![0]);
+
+    // Marker must be set after import
+    expect(mockSetLegacyImportDone).toHaveBeenCalledOnce();
+
+    // Prompt is cleared
+    await waitFor(() => {
+      expect(screen.getByTestId('legacyImportCount').textContent).toBe('null');
+    });
+  });
+
+  it('does NOT delete legacy localStorage entries after import', async () => {
+    // Set a fake legacy entry in localStorage to verify it's left untouched.
+    try {
+      localStorage.setItem('pointplanner.index', JSON.stringify({ maps: [{ id: 'legacy-1', name: 'Old' }] }));
+      localStorage.setItem('pointplanner.map.legacy-1', JSON.stringify(makeMapData('Old')));
+    } catch { /* ignore */ }
+
+    mockListMaps.mockResolvedValue([makeRow('map-1', 'Alpha')]);
+    mockGetLegacyImportDone.mockReturnValue(false);
+    mockDetectLegacyMaps.mockReturnValue([makeLegacyMap('legacy-1', 'Old')]);
+    mockCreateMap.mockResolvedValue(makeRow('old', 'Old'));
+
+    renderRegistry();
+    await waitFor(() => expect(screen.getByTestId('loading').textContent).toBe('false'));
+
+    await act(async () => {
+      screen.getByTestId('btn-import-legacy').click();
+    });
+
+    await waitFor(() => expect(mockCreateMap).toHaveBeenCalled());
+
+    // Legacy keys must still be present
+    expect(localStorage.getItem('pointplanner.index')).not.toBeNull();
+    expect(localStorage.getItem('pointplanner.map.legacy-1')).not.toBeNull();
+
+    // Clean up
+    try {
+      localStorage.removeItem('pointplanner.index');
+      localStorage.removeItem('pointplanner.map.legacy-1');
+    } catch { /* ignore */ }
+  });
+});
+
+describe('MapRegistryProvider — dismissLegacyImport', () => {
+  it('sets the marker and clears the prompt without calling createMap', async () => {
+    mockListMaps.mockResolvedValue([makeRow('map-1', 'Alpha')]);
+    mockGetLegacyImportDone.mockReturnValue(false);
+    mockDetectLegacyMaps.mockReturnValue([makeLegacyMap('legacy-1', 'Old Map A')]);
+
+    renderRegistry();
+    await waitFor(() => expect(screen.getByTestId('loading').textContent).toBe('false'));
+    expect(screen.getByTestId('legacyImportCount').textContent).toBe('1');
+
+    act(() => {
+      screen.getByTestId('btn-dismiss-legacy').click();
+    });
+
+    expect(screen.getByTestId('legacyImportCount').textContent).toBe('null');
+    expect(mockSetLegacyImportDone).toHaveBeenCalledOnce();
+    expect(mockCreateMap).not.toHaveBeenCalled();
+  });
+
+  it('does not touch legacy localStorage entries on dismiss', async () => {
+    try {
+      localStorage.setItem('pointplanner.index', JSON.stringify({ maps: [{ id: 'x', name: 'X' }] }));
+    } catch { /* ignore */ }
+
+    mockListMaps.mockResolvedValue([makeRow('map-1', 'Alpha')]);
+    mockGetLegacyImportDone.mockReturnValue(false);
+    mockDetectLegacyMaps.mockReturnValue([makeLegacyMap('x', 'X')]);
+
+    renderRegistry();
+    await waitFor(() => expect(screen.getByTestId('loading').textContent).toBe('false'));
+
+    act(() => {
+      screen.getByTestId('btn-dismiss-legacy').click();
+    });
+
+    expect(localStorage.getItem('pointplanner.index')).not.toBeNull();
+
+    try {
+      localStorage.removeItem('pointplanner.index');
+    } catch { /* ignore */ }
   });
 });
