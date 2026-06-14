@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { listShares, addShare, removeShare, type ShareEntry } from '../lib/mapsRepo';
+import { listShares, addShare, removeShare, type ShareEntry, type MapRole } from '../lib/mapsRepo';
 
 interface ShareModalProps {
   mapId: string;
@@ -7,12 +7,20 @@ interface ShareModalProps {
   onClose: () => void;
 }
 
-// Owner-only dialog: grant/revoke read-only (Viewer) access to a map by email.
-// Sharing is email-keyed with no accept step — the share resolves the moment the
-// recipient signs in with that email (see migration 0002 / adr/0001).
+// Editor/Viewer are the only roles the owner can grant here ('owner' is implicit
+// and never assignable through sharing).
+type ShareableRole = Exclude<MapRole, 'owner'>;
+
+// Owner-only dialog: grant/switch/revoke access to a map by email. A recipient
+// can be a Viewer (read-only) or an Editor (full edit, but cannot re-share or
+// delete — see migration 0003). Sharing is email-keyed with no accept step — the
+// share resolves the moment the recipient signs in with that email (migration
+// 0002 / adr/0001). addShare upserts on (map_id,email), so re-adding the same
+// email with a different role just switches their role.
 export function ShareModal({ mapId, mapName, onClose }: ShareModalProps) {
   const [shares, setShares] = useState<ShareEntry[]>([]);
   const [email, setEmail] = useState('');
+  const [role, setRole] = useState<ShareableRole>('viewer');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -60,16 +68,32 @@ export function ShareModal({ mapId, mapName, onClose }: ShareModalProps) {
     setBusy(true);
     setError(null);
     try {
-      await addShare(mapId, value, 'viewer');
+      await addShare(mapId, value, role);
       setEmail('');
       await refresh();
     } catch (err) {
       console.error('Failed to add share', err);
-      setError('Could not add viewer.');
+      setError('Could not share the map.');
     } finally {
       setBusy(false);
     }
-  }, [email, mapId, refresh]);
+  }, [email, role, mapId, refresh]);
+
+  // Switch an existing person between Viewer and Editor. addShare upserts on
+  // (map_id,email), so this changes their role in place.
+  const handleRoleChange = useCallback(async (target: string, newRole: ShareableRole) => {
+    setBusy(true);
+    setError(null);
+    try {
+      await addShare(mapId, target, newRole);
+      await refresh();
+    } catch (err) {
+      console.error('Failed to change role', err);
+      setError('Could not change access level.');
+    } finally {
+      setBusy(false);
+    }
+  }, [mapId, refresh]);
 
   const handleRemove = useCallback(async (target: string) => {
     setBusy(true);
@@ -97,7 +121,8 @@ export function ShareModal({ mapId, mapName, onClose }: ShareModalProps) {
         </button>
         <h2>Share map</h2>
         <p className="modal-sub">
-          Give someone read-only access to “{mapName}” by email. They’ll see it in
+          Give someone access to “{mapName}” by email. Viewers can read it; Editors
+          can change anything but can’t re-share or delete it. They’ll see it in
           their list as soon as they sign in with that email — there’s no accept step.
         </p>
 
@@ -114,6 +139,16 @@ export function ShareModal({ mapId, mapName, onClose }: ShareModalProps) {
               onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); void handleAdd(); } }}
             />
           </label>
+          <label>
+            Access
+            <select
+              value={role}
+              onChange={e => setRole(e.target.value as ShareableRole)}
+            >
+              <option value="viewer">Viewer</option>
+              <option value="editor">Editor</option>
+            </select>
+          </label>
           <button
             className="btn-primary"
             type="button"
@@ -121,7 +156,7 @@ export function ShareModal({ mapId, mapName, onClose }: ShareModalProps) {
             onClick={() => void handleAdd()}
             style={{ marginBottom: 14, padding: '9px 16px', borderRadius: 10, fontWeight: 700, border: 'none', cursor: 'pointer' }}
           >
-            Add viewer
+            Add
           </button>
         </div>
 
@@ -130,13 +165,22 @@ export function ShareModal({ mapId, mapName, onClose }: ShareModalProps) {
         <div className="field">
           <div className="field-label">People with access</div>
           {shares.length === 0 ? (
-            <div className="p-none">No one yet — add a viewer above.</div>
+            <div className="p-none">No one yet — add someone above.</div>
           ) : (
             <div className="prereq-grid">
               {shares.map(s => (
                 <div key={s.email} className="pq" style={{ cursor: 'default' }}>
                   <span>{s.email}</span>
-                  <span className="pq-line">{s.role}</span>
+                  <select
+                    className="pq-line"
+                    aria-label={`Access level for ${s.email}`}
+                    disabled={busy}
+                    value={s.role === 'editor' ? 'editor' : 'viewer'}
+                    onChange={e => void handleRoleChange(s.email, e.target.value as ShareableRole)}
+                  >
+                    <option value="viewer">Viewer</option>
+                    <option value="editor">Editor</option>
+                  </select>
                   <button
                     className="map-menu-icon-btn map-menu-icon-btn--danger"
                     type="button"

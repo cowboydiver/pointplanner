@@ -79,6 +79,19 @@ describe('listMaps', () => {
     ]);
   });
 
+  it('labels an editor-shared map with role "editor"', async () => {
+    routeFrom({
+      maps: makeBuilder({
+        data: [{ id: 'b', name: 'Beta', owner: 'someone-else' }],
+        error: null,
+      }),
+      map_shares: makeBuilder({ data: [{ map_id: 'b', role: 'editor' }], error: null }),
+    });
+
+    const metas = await listMaps();
+    expect(metas).toEqual([{ id: 'b', name: 'Beta', role: 'editor' }]);
+  });
+
   it('throws on error', async () => {
     routeFrom({ maps: makeBuilder({ data: null, error: { message: 'boom' } }) });
     await expect(listMaps()).rejects.toBeTruthy();
@@ -103,6 +116,18 @@ describe('loadMap', () => {
     });
     const rec = await loadMap('m1');
     expect(rec).toEqual({ id: 'm1', name: 'X', data, version: 7, role: 'viewer' });
+  });
+
+  it('returns role "editor" when not the owner but an editor share exists', async () => {
+    // The store treats role !== 'viewer' as editable, so an editor share must
+    // surface as 'editor' (not read-only) — #20.
+    const data = createBlankMapData('X');
+    routeFrom({
+      maps: makeBuilder({ data: { id: 'm1', name: 'X', data, version: 7, owner: 'other' }, error: null }),
+      map_shares: makeBuilder({ data: [{ map_id: 'm1', role: 'editor' }], error: null }),
+    });
+    const rec = await loadMap('m1');
+    expect(rec).toEqual({ id: 'm1', name: 'X', data, version: 7, role: 'editor' });
   });
 
   it('returns null when the row is missing', async () => {
@@ -211,6 +236,33 @@ describe('sharing', () => {
       { onConflict: 'map_id,email' },
     );
   });
+
+  it('addShare writes role "editor" with the email lowercased', async () => {
+    const builder = makeBuilder({ data: null, error: null });
+    fromMock.mockReturnValue(builder);
+    await addShare('m1', '  Editor@Example.COM ', 'editor');
+    expect(builder.upsert).toHaveBeenCalledWith(
+      { map_id: 'm1', email: 'editor@example.com', role: 'editor' },
+      { onConflict: 'map_id,email' },
+    );
+  });
+
+  it('switching a role: re-adding the same email upserts with the new role', async () => {
+    // Switching Viewer→Editor is just addShare again; the upsert on
+    // (map_id,email) changes the role in place rather than inserting a duplicate.
+    const builder = makeBuilder({ data: null, error: null });
+    fromMock.mockReturnValue(builder);
+    await addShare('m1', 'person@example.com', 'editor');
+    expect(builder.upsert).toHaveBeenCalledWith(
+      { map_id: 'm1', email: 'person@example.com', role: 'editor' },
+      { onConflict: 'map_id,email' },
+    );
+  });
+
+  // The "two Editors diverging → stale, not a silent overwrite" guarantee is
+  // identical to the optimistic-concurrency path covered by the saveMap
+  // "two clients with diverging versions" test above (#18). Editor saves go
+  // through the same saveMap guard, so it is not duplicated here.
 
   it('removeShare deletes by map_id + lowercased email', async () => {
     const builder = makeBuilder({ data: null, error: null });
