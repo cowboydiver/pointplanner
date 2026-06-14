@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useReducer, useMemo, useEffect, useRef, useState, useCallback } from 'react';
 import { buildIndexes, type Indexes } from '../lib/indexes';
 import { createSeedMapData } from '../lib/maps';
-import { loadMap, saveMap, type MapRole } from '../lib/mapsRepo';
+import { loadMap, saveMap, type MapRole } from '../data/mapsRepo';
 import { useMapRegistry } from './mapRegistry';
 import { reducer, type StoreState, type PersistedState, type Action } from './reducer';
 

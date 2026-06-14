@@ -11,7 +11,7 @@ const verifyOtp = vi.fn();
 const signOut = vi.fn();
 const unsubscribe = vi.fn();
 
-vi.mock('../lib/supabase', () => ({
+vi.mock('../data/supabase', () => ({
   isSupabaseConfigured: () => true,
   supabase: {
     auth: {

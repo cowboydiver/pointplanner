@@ -1,5 +1,5 @@
 import { supabase } from './supabase';
-import type { MapData, MapMeta } from './maps';
+import type { MapData, MapMeta } from '../lib/maps';
 
 // Data-access layer for cloud-backed maps (issue #16). Every query below is
 // scoped to the current user automatically by the `maps` RLS policies — we never

@@ -36,7 +36,7 @@ import {
   addShare,
   removeShare,
 } from './mapsRepo';
-import { createBlankMapData } from './maps';
+import { createBlankMapData } from '../lib/maps';
 
 // Default identity helper: the signed-in user.
 function signInAs(id: string, email: string) {

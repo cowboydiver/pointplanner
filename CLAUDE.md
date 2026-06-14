@@ -40,15 +40,17 @@ seed data (src/data/seed.ts)
 
 Grid constants (do not change without updating tests): `PAD_X=96, COL=152, PAD_Y=92, ROW=94, CORNER_RADIUS=18`.
 
-The files listed above are pure (no React, no I/O). `src/lib/` also holds a small number of **data-access adapters** that *do* perform I/O and are intentionally not pure — they are the one exception to the "pure logic" rule:
+Everything in `src/lib/` is pure (no React, no I/O) — including `localImport.ts`, the `localStorage` detection helpers for the one-time #17 import (they take a `Storage` double). The one exception that previously lived here, the cloud **data-access layer**, now lives in `src/data/` (see below).
+
+### Data-access layer (`src/data/`)
+
+I/O-bearing modules that talk to Supabase live here, kept separate from the pure `src/lib/` logic. The React layer and tests go through these typed module surfaces rather than touching the Supabase client directly; their unit tests mock the client.
 
 | File | What it does |
 |---|---|
+| `seed.ts` | The sample "Q3 Product Launch" project used to seed a new account's demo map |
 | `supabase.ts` | The single `supabase-js` client (reads `VITE_SUPABASE_*` env) + `isSupabaseConfigured()` |
 | `mapsRepo.ts` | Cloud data-access layer over Supabase (maps + shares CRUD, role resolution, version-guarded saves) |
-| `localImport.ts` | Pure `localStorage` detection helpers for the one-time #17 import (these *are* pure — take a `Storage` double) |
-
-Adapters keep all Supabase I/O behind a typed module surface so the React layer and tests never touch the client directly; their unit tests mock the client.
 
 ### Store actions
 

@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useAuth } from '../store/auth';
 import { useMapRegistry } from '../store/mapRegistry';
-import { createMap } from '../lib/mapsRepo';
+import { createMap } from '../data/mapsRepo';
 import {
   detectLocalMaps,
   hasImportRun,

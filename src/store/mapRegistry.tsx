@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { createSeedMapData, createBlankMapData, chooseInitialMap } from '../lib/maps';
-import * as repo from '../lib/mapsRepo';
-import type { MapListItem } from '../lib/mapsRepo';
+import * as repo from '../data/mapsRepo';
+import type { MapListItem } from '../data/mapsRepo';
 
 const SEED_NAME = 'PointPlanner Demo';
 

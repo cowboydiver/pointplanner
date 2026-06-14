@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { listShares, addShare, removeShare, type ShareEntry, type MapRole } from '../lib/mapsRepo';
+import { listShares, addShare, removeShare, type ShareEntry, type MapRole } from '../data/mapsRepo';
 
 interface ShareModalProps {
   mapId: string;

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useAuth } from '../store/auth';
-import { isSupabaseConfigured } from '../lib/supabase';
+import { isSupabaseConfigured } from '../data/supabase';
 
 type Step = 'email' | 'code';
 
