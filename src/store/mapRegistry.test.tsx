@@ -63,7 +63,7 @@ import { MapRegistryProvider, useMapRegistry } from './mapRegistry';
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function makeRow(id: string, name: string, version = 1): MapRow {
-  return { id, name, version, updatedAt: '2024-01-01T00:00:00Z' };
+  return { id, name, version, updatedAt: '2024-01-01T00:00:00Z', owner: 'uid-owner' };
 }
 
 function makeMapData(name: string): MapData {

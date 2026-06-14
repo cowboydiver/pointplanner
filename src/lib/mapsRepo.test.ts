@@ -74,6 +74,10 @@ import {
   renameMap,
   deleteMap,
   duplicateMap,
+  listShares,
+  addShare,
+  removeShare,
+  normaliseEmail,
 } from './mapsRepo';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -103,11 +107,11 @@ beforeEach(() => {
 // ── listMaps ──────────────────────────────────────────────────────────────────
 
 describe('listMaps', () => {
-  it('maps snake_case rows to MapRow[] with camelCase updatedAt', async () => {
+  it('maps snake_case rows to MapRow[] with camelCase updatedAt and owner', async () => {
     queueResult({
       data: [
-        { id: 'map-1', name: 'Alpha', version: 3, updated_at: '2024-01-01T00:00:00Z' },
-        { id: 'map-2', name: 'Beta',  version: 1, updated_at: '2024-01-02T00:00:00Z' },
+        { id: 'map-1', name: 'Alpha', version: 3, updated_at: '2024-01-01T00:00:00Z', owner: 'uid-alice' },
+        { id: 'map-2', name: 'Beta',  version: 1, updated_at: '2024-01-02T00:00:00Z', owner: 'uid-bob' },
       ],
       error: null,
     });
@@ -115,10 +119,13 @@ describe('listMaps', () => {
     const rows = await listMaps();
 
     expect(rows).toEqual([
-      { id: 'map-1', name: 'Alpha', version: 3, updatedAt: '2024-01-01T00:00:00Z' },
-      { id: 'map-2', name: 'Beta',  version: 1, updatedAt: '2024-01-02T00:00:00Z' },
+      { id: 'map-1', name: 'Alpha', version: 3, updatedAt: '2024-01-01T00:00:00Z', owner: 'uid-alice' },
+      { id: 'map-2', name: 'Beta',  version: 1, updatedAt: '2024-01-02T00:00:00Z', owner: 'uid-bob' },
     ]);
     expect(getCall().table).toBe('maps');
+    // Verify that owner is included in the select column list
+    const selectOp = findOp(getCall(), 'select');
+    expect(selectOp?.args[0]).toContain('owner');
   });
 
   it('returns [] when the query returns no rows', async () => {
@@ -155,6 +162,31 @@ describe('getMap', () => {
   it('throws when supabase returns an error', async () => {
     queueResult({ data: null, error: { message: 'db error' } });
     await expect(getMap('x')).rejects.toThrow('db error');
+  });
+
+  it('without owner: filters only on id (back-compat)', async () => {
+    queueResult({ data: [{ data: sampleData, version: 2 }], error: null });
+
+    await getMap('my-map');
+
+    const call = getCall();
+    const eqOps = call.ops.filter(o => o.method === 'eq');
+    // Only one eq — for id
+    expect(eqOps).toHaveLength(1);
+    expect(eqOps[0]?.args).toEqual(['id', 'my-map']);
+  });
+
+  it('with owner: filters on owner then id (composite PK path)', async () => {
+    queueResult({ data: [{ data: sampleData, version: 3 }], error: null });
+
+    await getMap('shared-map', 'uid-alice');
+
+    const call = getCall();
+    const eqOps = call.ops.filter(o => o.method === 'eq');
+    // Two eqs: owner first, then id (as chained in the implementation)
+    expect(eqOps).toHaveLength(2);
+    expect(eqOps[0]?.args).toEqual(['owner', 'uid-alice']);
+    expect(eqOps[1]?.args).toEqual(['id', 'shared-map']);
   });
 });
 
@@ -362,5 +394,140 @@ describe('duplicateMap', () => {
   it('throws when supabase returns an error on the source fetch', async () => {
     queueResult({ data: null, error: { message: 'fetch error' } });
     await expect(duplicateMap('bad-src', 'copy', 'Copy')).rejects.toThrow('fetch error');
+  });
+});
+
+// ── normaliseEmail ────────────────────────────────────────────────────────────
+
+describe('normaliseEmail', () => {
+  it('lowercases the email', () => {
+    expect(normaliseEmail('User@Example.COM')).toBe('user@example.com');
+  });
+
+  it('trims leading and trailing whitespace', () => {
+    expect(normaliseEmail('  alice@example.com  ')).toBe('alice@example.com');
+  });
+
+  it('trims and lowercases together', () => {
+    expect(normaliseEmail('  BOB@EXAMPLE.ORG  ')).toBe('bob@example.org');
+  });
+
+  it('returns the email unchanged when already normalised', () => {
+    expect(normaliseEmail('carol@example.net')).toBe('carol@example.net');
+  });
+});
+
+// ── listShares ────────────────────────────────────────────────────────────────
+
+describe('listShares', () => {
+  it('queries map_shares filtered by map_owner and map_id, returns ShareRow[]', async () => {
+    queueResult({
+      data: [
+        { email: 'alice@example.com', role: 'viewer' },
+        { email: 'bob@example.com',   role: 'editor' },
+      ],
+      error: null,
+    });
+
+    const rows = await listShares('uid-owner', 'my-map');
+
+    expect(rows).toEqual([
+      { email: 'alice@example.com', role: 'viewer' },
+      { email: 'bob@example.com',   role: 'editor' },
+    ]);
+    const call = getCall();
+    expect(call.table).toBe('map_shares');
+    const selectOp = findOp(call, 'select');
+    expect(selectOp?.args[0]).toContain('email');
+    expect(selectOp?.args[0]).toContain('role');
+    const eqOps = call.ops.filter(o => o.method === 'eq');
+    const ownerEq = eqOps.find(o => o.args[0] === 'map_owner');
+    expect(ownerEq?.args).toEqual(['map_owner', 'uid-owner']);
+    const mapIdEq = eqOps.find(o => o.args[0] === 'map_id');
+    expect(mapIdEq?.args).toEqual(['map_id', 'my-map']);
+  });
+
+  it('returns [] when there are no shares', async () => {
+    queueResult({ data: [], error: null });
+    expect(await listShares('uid-owner', 'my-map')).toEqual([]);
+  });
+
+  it('throws when supabase returns an error', async () => {
+    queueResult({ data: null, error: { message: 'shares fetch failed' } });
+    await expect(listShares('uid-owner', 'my-map')).rejects.toThrow('shares fetch failed');
+  });
+});
+
+// ── addShare ──────────────────────────────────────────────────────────────────
+
+describe('addShare', () => {
+  it('upserts into map_shares with normalised email (lowercased + trimmed)', async () => {
+    queueResult({ data: [], error: null });
+
+    await addShare('uid-owner', 'my-map', '  ALICE@Example.COM  ');
+
+    const call = getCall();
+    expect(call.table).toBe('map_shares');
+    const upsertOp = findOp(call, 'upsert');
+    expect(upsertOp).toBeDefined();
+    const payload = upsertOp!.args[0] as Record<string, unknown>;
+    expect(payload.map_owner).toBe('uid-owner');
+    expect(payload.map_id).toBe('my-map');
+    expect(payload.email).toBe('alice@example.com');
+    expect(payload.role).toBe('viewer');
+  });
+
+  it('defaults role to "viewer" when not specified', async () => {
+    queueResult({ data: [], error: null });
+
+    await addShare('uid-owner', 'my-map', 'bob@example.com');
+
+    const call = getCall();
+    const upsertOp = findOp(call, 'upsert');
+    const payload = upsertOp!.args[0] as Record<string, unknown>;
+    expect(payload.role).toBe('viewer');
+  });
+
+  it('sends the provided role when specified', async () => {
+    queueResult({ data: [], error: null });
+
+    await addShare('uid-owner', 'my-map', 'carol@example.com', 'editor');
+
+    const call = getCall();
+    const upsertOp = findOp(call, 'upsert');
+    const payload = upsertOp!.args[0] as Record<string, unknown>;
+    expect(payload.role).toBe('editor');
+  });
+
+  it('throws when supabase returns an error', async () => {
+    queueResult({ data: null, error: { message: 'upsert failed' } });
+    await expect(addShare('uid-owner', 'my-map', 'x@example.com')).rejects.toThrow('upsert failed');
+  });
+});
+
+// ── removeShare ───────────────────────────────────────────────────────────────
+
+describe('removeShare', () => {
+  it('deletes from map_shares with normalised email (lowercased + trimmed)', async () => {
+    queueResult({ data: [], error: null });
+
+    await removeShare('uid-owner', 'my-map', '  ALICE@Example.COM  ');
+
+    const call = getCall();
+    expect(call.table).toBe('map_shares');
+    expect(opNames(call)).toContain('delete');
+    const eqOps = call.ops.filter(o => o.method === 'eq');
+    const ownerEq = eqOps.find(o => o.args[0] === 'map_owner');
+    expect(ownerEq?.args).toEqual(['map_owner', 'uid-owner']);
+    const mapIdEq = eqOps.find(o => o.args[0] === 'map_id');
+    expect(mapIdEq?.args).toEqual(['map_id', 'my-map']);
+    const emailEq = eqOps.find(o => o.args[0] === 'email');
+    // email must be normalised
+    expect(emailEq?.args).toEqual(['email', 'alice@example.com']);
+  });
+
+  it('throws when supabase returns an error', async () => {
+    queueResult({ data: null, error: { message: 'delete failed' } });
+    await expect(removeShare('uid-owner', 'my-map', 'x@example.com')).rejects.toThrow('delete failed');
   });
 });
