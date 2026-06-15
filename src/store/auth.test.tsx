@@ -113,7 +113,7 @@ describe('AuthProvider', () => {
       email: 'me@example.com',
       options: {
         shouldCreateUser: true,
-        emailRedirectTo: `${window.location.origin}/`,
+        emailRedirectTo: `${window.location.origin}${import.meta.env.BASE_URL}`,
       },
     });
   });

@@ -62,11 +62,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         email,
         options: {
           shouldCreateUser: true,
-          // Origin-correct magic-link target (matches docs/supabase-setup.md);
-          // without it the link relies on the dashboard Site URL, which is
-          // wrong in local dev. The added origin must be in the dashboard's
-          // Redirect URLs allow-list.
-          emailRedirectTo: `${window.location.origin}/`,
+          // Magic-link target. window.location.origin is scheme+host only, so
+          // it omits the Vite base path — on GitHub Pages the app is served
+          // under /pointplanner/, and origin alone would land on the org root
+          // (404). import.meta.env.BASE_URL is '/pointplanner/' in the prod
+          // build and '/' in dev, so this resolves to the real app URL. The
+          // resulting URL must be in the dashboard's Redirect URLs allow-list.
+          emailRedirectTo: `${window.location.origin}${import.meta.env.BASE_URL}`,
         },
       });
       return { error: error ? error.message : null };
