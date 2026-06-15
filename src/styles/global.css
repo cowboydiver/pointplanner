@@ -52,6 +52,25 @@ body {
 .topbar .tb-btn.primary { background: var(--ink); color: #fff; border-color: var(--ink); }
 .topbar .pill { font-size: 12px; color: var(--ink-soft); border: 1px solid var(--hair); padding: 5px 11px; border-radius: 999px; font-weight: 600; }
 
+/* ===== stale-write banner (#18) ===== */
+.stale-banner {
+  display: flex; align-items: center; gap: 14px;
+  padding: 11px 18px;
+  background: #fbeae5; border-bottom: 1px solid #e7b3a6; color: #7a2415;
+  font-weight: 600; font-size: 13px;
+}
+.stale-banner-msg { flex: 1; }
+.stale-btn {
+  border: 1px solid var(--hair); background: #fff; color: var(--ink);
+  font: inherit; font-weight: 600; font-size: 13px;
+  padding: 7px 13px; border-radius: 9px; cursor: pointer;
+}
+.stale-btn:hover { background: #faf9f5; }
+.stale-btn.primary { background: var(--ink); color: #fff; border-color: var(--ink); }
+body[data-theme="dark"] .stale-banner { background: #3a201a; border-bottom-color: #5a2c22; color: #f3c9bd; }
+body[data-theme="dark"] .stale-btn { background: #232730; border-color: #2a2e38; color: var(--ink); }
+body[data-theme="dark"] .stale-btn.primary { background: #f1f0ea; color: #14161c; }
+
 .body { flex: 1; display: flex; min-height: 0; position: relative; }
 
 /* ===== left legend ===== */
@@ -255,6 +274,7 @@ body.hide-labels .label { display: none; }
 .pre-name { flex: 1; font-weight: 600; }
 .pre-state { font-size: 11.5px; color: var(--ink-faint); font-weight: 600; }
 .p-actions { margin-top: 24px; display: flex; flex-direction: column; gap: 10px; }
+.p-readonly-note { margin-top: 24px; font-size: 13px; color: var(--ink-faint); font-style: italic; }
 .act { width: 100%; border: none; font: inherit; font-weight: 700; font-size: 14.5px; padding: 13px; border-radius: 11px; cursor: pointer; background: var(--ink); color: #fff; transition: transform .1s, background .15s; }
 .act:hover { transform: translateY(-1px); }
 .act:active { transform: translateY(0); }
@@ -379,7 +399,12 @@ body[data-theme="dark"] .btn-primary { background: #f1f0ea; color: #14161c; }
   font-size: 13px; font-weight: 600; color: var(--ink);
 }
 .map-menu-check { color: var(--ink); font-size: 11px; flex: 0 0 auto; }
-.map-menu-item-label { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.map-menu-item-label { flex: 0 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.map-menu-shared-badge {
+  flex: 0 0 auto; font-size: 10px; font-weight: 700; letter-spacing: .03em;
+  color: var(--ink-faint); background: var(--paper-grid, #f1eee5);
+  border: 1px solid var(--hair); padding: 1px 7px; border-radius: 999px;
+}
 .map-menu-item-actions {
   display: flex; align-items: center; gap: 2px;
   padding-right: 6px; opacity: 0; transition: opacity .12s;
@@ -503,3 +528,26 @@ body[data-theme="dark"] .line-editor { background: #232730; }
 body[data-theme="dark"] .line-edit:hover { background: #1e2733; color: #6ea8fe; }
 body[data-theme="dark"] .btn-ghost-sm { background: #2f3540; }
 body[data-theme="dark"] .btn-primary-sm { background: #f1f0ea; color: #14161c; }
+
+/* ===== sign-in ===== */
+.signin-form { display: flex; flex-direction: column; gap: 10px; width: 100%; margin-top: 6px; }
+.signin-input {
+  font: inherit; font-size: 14.5px; width: 100%;
+  padding: 11px 13px; border: 1px solid var(--hair); border-radius: 11px;
+  background: var(--paper); color: var(--ink); text-align: center;
+}
+.signin-input:focus { outline: none; border-color: var(--ink); }
+.signin-btn { justify-content: center; padding: 11px 18px; font-size: 14.5px; border-radius: 11px; }
+.signin-link {
+  border: none; background: none; font: inherit; font-size: 13px; font-weight: 600;
+  color: var(--ink-soft); cursor: pointer; padding: 2px 4px;
+}
+.signin-link:hover { color: var(--ink); }
+.signin-error { font-size: 13px; font-weight: 600; color: #D8392F; text-align: center; }
+.signin-notice {
+  font-size: 12.5px; color: var(--ink-soft); line-height: 1.5; text-align: center;
+  border-top: 1px solid var(--hair); padding-top: 14px; margin-top: 4px;
+}
+.signin-notice code { font-size: 12px; background: var(--paper); padding: 1px 5px; border-radius: 5px; }
+body[data-theme="dark"] .signin-input { background: #232730; border-color: #2a2e38; color: var(--ink); }
+.auth-loading { display: flex; align-items: center; justify-content: center; height: 100vh; color: var(--ink-soft); font-size: 14px; }

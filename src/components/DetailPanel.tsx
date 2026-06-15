@@ -10,7 +10,7 @@ const STATUS_LABEL: Record<string, string> = {
 };
 
 export function DetailPanel() {
-  const { state, indexes, dispatch } = useStore();
+  const { state, indexes, dispatch, readOnly } = useStore();
   const { selectedId } = state;
   const { stationById, lineById, prereqs, dependents } = indexes;
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -159,6 +159,9 @@ export function DetailPanel() {
           </div>
         )}
 
+        {readOnly ? (
+          <div className="p-readonly-note">Read-only — shared with you</div>
+        ) : (
         <div className="p-actions">
           {station.status === 'available' && (
             <button className="act" type="button" onClick={() => handleAction('start')}>
@@ -201,6 +204,7 @@ export function DetailPanel() {
             Delete task
           </button>
         </div>
+        )}
       </div>
       <ConfirmDialog
         isOpen={confirmDelete}

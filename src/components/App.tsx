@@ -7,6 +7,9 @@ import { TransitMap } from './TransitMap';
 import { DetailPanel } from './DetailPanel';
 import { CreateModal } from './CreateModal';
 import { EmptyState } from './EmptyState';
+import { AuthProvider, useAuth } from '../store/auth';
+import { SignIn } from './SignIn';
+import { ImportPrompt } from './ImportPrompt';
 
 function AppInner() {
   const { state, dispatch } = useStore();
@@ -42,7 +45,11 @@ function AppInner() {
 }
 
 function AppRoot() {
-  const { index, reloadNonce } = useMapRegistry();
+  const { index, reloadNonce, loading } = useMapRegistry();
+
+  if (loading) {
+    return <div className="auth-loading">Loading…</div>;
+  }
 
   if (index.activeMapId === null) {
     return <EmptyState />;
@@ -55,10 +62,29 @@ function AppRoot() {
   );
 }
 
-export function App() {
+function AuthGate() {
+  const { status } = useAuth();
+
+  if (status === 'loading') {
+    return <div className="auth-loading">Loading…</div>;
+  }
+
+  if (status === 'signed-out') {
+    return <SignIn />;
+  }
+
   return (
     <MapRegistryProvider>
+      <ImportPrompt />
       <AppRoot />
     </MapRegistryProvider>
+  );
+}
+
+export function App() {
+  return (
+    <AuthProvider>
+      <AuthGate />
+    </AuthProvider>
   );
 }
