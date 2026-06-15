@@ -28,6 +28,14 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run build
+        # Supabase client config is baked into the bundle at build time. Both are
+        # safe-to-expose client values (publishable key, not a secret), so they
+        # live as repo Actions *Variables* (Settings → Secrets and variables →
+        # Actions → Variables), not Secrets. If unset, the deployed app still
+        # builds but shows the "Supabase is not configured" sign-in notice.
+        env:
+          VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_PUBLISHABLE_KEY: ${{ vars.VITE_SUPABASE_PUBLISHABLE_KEY }}
       - uses: actions/configure-pages@v5
         with:
           # Self-enable Pages (and set source to Actions) so no manual
