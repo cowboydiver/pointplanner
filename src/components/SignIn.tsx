@@ -124,7 +124,7 @@ export function SignIn() {
           {!configured && (
             <div className="signin-notice">
               Supabase is not configured. Set <code>VITE_SUPABASE_URL</code> and{' '}
-              <code>VITE_SUPABASE_ANON_KEY</code> to enable sign-in.
+              <code>VITE_SUPABASE_PUBLISHABLE_KEY</code> to enable sign-in.
             </div>
           )}
         </div>

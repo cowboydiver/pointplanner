@@ -30,10 +30,15 @@ Copy `.env.example` to `.env` (or `.env.local`) and supply your project credenti
 | Variable | Description |
 | --- | --- |
 | `VITE_SUPABASE_URL` | Your Supabase project URL |
-| `VITE_SUPABASE_ANON_KEY` | The project's public anon key |
+| `VITE_SUPABASE_PUBLISHABLE_KEY` | The project's publishable key (`sb_publishable_…`) |
 
 These are public client-side keys but should not be committed (`.env` / `*.local` are git-ignored).
 If they are absent the app still builds and runs, but the sign-in screen shows a "not configured" notice.
+
+> **Note:** Supabase replaced the legacy JWT `anon` / `service_role` keys with
+> publishable / secret keys in 2025. This app uses only the **publishable** key
+> (same low privileges as the old anon key). See [`docs/supabase-setup.md`](docs/supabase-setup.md)
+> for the full setup, RLS, and auth-configuration guide.
 
 ### Sign-in flow
 
