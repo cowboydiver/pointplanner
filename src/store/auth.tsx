@@ -60,7 +60,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     async signInWithEmail(email) {
       const { error } = await supabase.auth.signInWithOtp({
         email,
-        options: { shouldCreateUser: true },
+        options: {
+          shouldCreateUser: true,
+          // Origin-correct magic-link target (matches docs/supabase-setup.md);
+          // without it the link relies on the dashboard Site URL, which is
+          // wrong in local dev. The added origin must be in the dashboard's
+          // Redirect URLs allow-list.
+          emailRedirectTo: `${window.location.origin}/`,
+        },
       });
       return { error: error ? error.message : null };
     },

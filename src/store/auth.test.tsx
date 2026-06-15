@@ -111,7 +111,10 @@ describe('AuthProvider', () => {
     expect(result).toEqual({ error: null });
     expect(signInWithOtp).toHaveBeenCalledWith({
       email: 'me@example.com',
-      options: { shouldCreateUser: true },
+      options: {
+        shouldCreateUser: true,
+        emailRedirectTo: `${window.location.origin}/`,
+      },
     });
   });
 
