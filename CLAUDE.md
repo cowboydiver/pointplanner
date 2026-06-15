@@ -52,7 +52,7 @@ I/O-bearing modules that talk to Supabase live here, kept separate from the pure
 | `supabase.ts` | The single `supabase-js` client (reads `VITE_SUPABASE_*` env) + `isSupabaseConfigured()` |
 | `mapsRepo.ts` | Cloud data-access layer over Supabase (maps + shares CRUD, role resolution, version-guarded saves, `sendShareInvite` → Edge Function) |
 
-SQL migrations live in `supabase/migrations/` (applied by a human, not the app). The one **Edge Function**, `supabase/functions/send-share-invite/`, sends share-invite emails server-side (the browser can't — publishable key only); it's deployed and given its `APP_URL` secret by a human. Share invites deep-link to `?map=<id>`, captured in `main.tsx` (via the pure `src/lib/pendingMap.ts`) and opened by `mapRegistry`. Provisioning, API keys (the **publishable** key — not the legacy `anon` key), RLS, auth, and Edge Function setup are documented in `docs/supabase-setup.md` (see also `docs/adr/0003-share-invite-emails.md`).
+SQL migrations live in `supabase/migrations/` (applied by a human, not the app). The one **Edge Function**, `supabase/functions/send-share-invite/`, sends branded share-invite emails server-side via Resend (the browser can't — publishable key only); it's deployed and given its Resend + `APP_URL` secrets by a human. Share invites deep-link to `?map=<id>`, captured in `main.tsx` (via the pure `src/lib/pendingMap.ts`) and opened by `mapRegistry`. Provisioning, API keys (the **publishable** key — not the legacy `anon` key), RLS, auth, and Edge Function setup are documented in `docs/supabase-setup.md` (see also `docs/adr/0003-share-invite-emails.md`).
 
 ### Store actions
 
