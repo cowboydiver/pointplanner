@@ -1,9 +1,23 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { createSeedMapData, createBlankMapData, chooseInitialMap } from '../lib/maps';
+import { takePendingMap } from '../lib/pendingMap';
 import * as repo from '../data/mapsRepo';
 import type { MapListItem } from '../data/mapsRepo';
 
 const SEED_NAME = 'PointPlanner Demo';
+
+// A share-invite deep link (`?map=<id>`, captured in main.tsx) selects that map on
+// the next bootstrap instead of the default first map. Read once and cached at
+// module scope so React StrictMode's double-mount (and any later provider
+// remount in the same page load) resolve to the same value; a real reload
+// re-evaluates the module and re-reads sessionStorage.
+let pendingMapId: string | null | undefined;
+function consumePendingMapId(): string | null {
+  if (pendingMapId === undefined) {
+    pendingMapId = takePendingMap(window.sessionStorage);
+  }
+  return pendingMapId;
+}
 
 // Local index: like MapIndex but carrying the role on each item so the role
 // travels with the switcher list (issue #19).
@@ -55,7 +69,13 @@ export function MapRegistryProvider({ children }: { children: React.ReactNode })
           maps = [{ ...meta, role: 'owner' }];
         }
         if (!active) return;
-        const { activeMapId } = chooseInitialMap(maps);
+        // Open the invited map if the deep link named one we can actually read;
+        // otherwise fall back to the default choice.
+        const pending = consumePendingMapId();
+        const activeMapId =
+          pending && maps.some(m => m.id === pending)
+            ? pending
+            : chooseInitialMap(maps).activeMapId;
         setIndex({ activeMapId, maps });
       } catch (err) {
         if (!active) return;

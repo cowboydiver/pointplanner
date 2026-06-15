@@ -1,5 +1,12 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { listShares, addShare, removeShare, type ShareEntry, type MapRole } from '../data/mapsRepo';
+import {
+  listShares,
+  addShare,
+  removeShare,
+  sendShareInvite,
+  type ShareEntry,
+  type MapRole,
+} from '../data/mapsRepo';
 
 interface ShareModalProps {
   mapId: string;
@@ -23,6 +30,7 @@ export function ShareModal({ mapId, mapName, onClose }: ShareModalProps) {
   const [role, setRole] = useState<ShareableRole>('viewer');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const refresh = useCallback(async () => {
@@ -67,10 +75,20 @@ export function ShareModal({ mapId, mapName, onClose }: ShareModalProps) {
     }
     setBusy(true);
     setError(null);
+    setNotice(null);
     try {
       await addShare(mapId, value, role);
       setEmail('');
       await refresh();
+      // Access is granted; the invite email is best-effort. If it fails, the
+      // share still stands and the owner can Resend.
+      try {
+        await sendShareInvite(mapId, value, role);
+        setNotice(`Invite emailed to ${value}.`);
+      } catch (inviteErr) {
+        console.error('Failed to send invite', inviteErr);
+        setError(`Shared with ${value}, but the invite email couldn’t be sent — try Resend.`);
+      }
     } catch (err) {
       console.error('Failed to add share', err);
       setError('Could not share the map.');
@@ -78,6 +96,22 @@ export function ShareModal({ mapId, mapName, onClose }: ShareModalProps) {
       setBusy(false);
     }
   }, [email, role, mapId, refresh]);
+
+  // Re-send the invite email to someone who already has access.
+  const handleResend = useCallback(async (target: string, targetRole: ShareableRole) => {
+    setBusy(true);
+    setError(null);
+    setNotice(null);
+    try {
+      await sendShareInvite(mapId, target, targetRole);
+      setNotice(`Invite re-sent to ${target}.`);
+    } catch (err) {
+      console.error('Failed to resend invite', err);
+      setError(`Could not send an invite to ${target}.`);
+    } finally {
+      setBusy(false);
+    }
+  }, [mapId]);
 
   // Switch an existing person between Viewer and Editor. addShare upserts on
   // (map_id,email), so this changes their role in place.
@@ -122,8 +156,9 @@ export function ShareModal({ mapId, mapName, onClose }: ShareModalProps) {
         <h2>Share map</h2>
         <p className="modal-sub">
           Give someone access to “{mapName}” by email. Viewers can read it; Editors
-          can change anything but can’t re-share or delete it. They’ll see it in
-          their list as soon as they sign in with that email — there’s no accept step.
+          can change anything but can’t re-share or delete it. We’ll email them a
+          link to the map — they’ll sign in with that email and land right on it,
+          with no accept step.
         </p>
 
         <div className="field-row" style={{ alignItems: 'flex-end' }}>
@@ -135,7 +170,7 @@ export function ShareModal({ mapId, mapName, onClose }: ShareModalProps) {
               placeholder="person@example.com"
               autoComplete="off"
               value={email}
-              onChange={e => { setEmail(e.target.value); if (error) setError(null); }}
+              onChange={e => { setEmail(e.target.value); if (error) setError(null); if (notice) setNotice(null); }}
               onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); void handleAdd(); } }}
             />
           </label>
@@ -161,6 +196,7 @@ export function ShareModal({ mapId, mapName, onClose }: ShareModalProps) {
         </div>
 
         {error && <div className="field-error" style={{ marginTop: -6, marginBottom: 12 }}>{error}</div>}
+        {notice && <div className="field-note" style={{ marginTop: -6, marginBottom: 12 }}>{notice}</div>}
 
         <div className="field">
           <div className="field-label">People with access</div>
@@ -181,6 +217,17 @@ export function ShareModal({ mapId, mapName, onClose }: ShareModalProps) {
                     <option value="viewer">Viewer</option>
                     <option value="editor">Editor</option>
                   </select>
+                  <button
+                    className="map-menu-icon-btn"
+                    type="button"
+                    title="Resend invite email"
+                    aria-label={`Resend invite to ${s.email}`}
+                    disabled={busy}
+                    onClick={() => void handleResend(s.email, s.role === 'editor' ? 'editor' : 'viewer')}
+                    style={{ marginLeft: 8 }}
+                  >
+                    ↻
+                  </button>
                   <button
                     className="map-menu-icon-btn map-menu-icon-btn--danger"
                     type="button"

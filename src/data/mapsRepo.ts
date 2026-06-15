@@ -218,3 +218,27 @@ export async function removeShare(mapId: string, email: string): Promise<void> {
 
   if (error) throw error;
 }
+
+/**
+ * Email the recipient an invite with a deep link to the map. Best-effort and
+ * separate from {@link addShare}: the share row is the source of truth for access;
+ * if the email fails the grant still stands and the owner can Resend.
+ *
+ * Delivery happens server-side in the `send-share-invite` Edge Function — the
+ * browser only holds the publishable key and cannot send mail. That function
+ * re-checks that the caller owns the map and that a matching `map_shares` row
+ * exists before emailing (Supabase Auth: an invite email for a new recipient, a
+ * magic-link sign-in for an existing one), so it can't be used as an open relay.
+ * The link lands the recipient on `?map=<id>` after the auth round-trip.
+ */
+export async function sendShareInvite(
+  mapId: string,
+  email: string,
+  role: MapRole = 'viewer',
+): Promise<void> {
+  const { error } = await supabase.functions.invoke('send-share-invite', {
+    body: { mapId, email: email.trim().toLowerCase(), role },
+  });
+
+  if (error) throw error;
+}

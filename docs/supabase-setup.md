@@ -130,6 +130,50 @@ Authentication → **URL Configuration**
 - To switch from magic link to a 6-digit code, edit the Magic Link template
   (Authentication → Email Templates) to include `{{ .Token }}`.
 
+## Edge Functions: share-invite emails
+
+Sharing emails the recipient a link to the map. The browser can't send mail (it
+only holds the publishable key and there's no backend), so a single **Edge
+Function** does it: [`supabase/functions/send-share-invite`](../supabase/functions/send-share-invite/index.ts).
+The SPA calls it via `supabase.functions.invoke('send-share-invite', …)`
+(`sendShareInvite` in `src/data/mapsRepo.ts`) right after granting the share.
+
+It uses **Supabase Auth's own emails** — no third-party provider:
+
+- recipient has **no account** → `admin.inviteUserByEmail` (the *Invite user*
+  template) — confirming creates their account and signs them in;
+- recipient **already exists** → `signInWithOtp` (the *Magic Link* template).
+
+Either way the link's `redirectTo` carries `?map=<id>`, so after the auth
+round-trip they land on the shared map (`main.tsx` captures the param,
+`mapRegistry` opens it). The function is also an anti-abuse boundary: it verifies
+the caller owns the map and that a `map_shares` row already exists for the
+recipient's email before sending, so it can't be used as an open relay.
+
+### Human setup (one-time)
+
+1. **Secret** — give the function the app's base URL so it can build the link:
+   ```bash
+   supabase secrets set APP_URL=https://cowboydiver.github.io/pointplanner/
+   ```
+   (`SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY` are injected
+   automatically — do **not** set them yourself.)
+2. **Deploy:**
+   ```bash
+   supabase functions deploy send-share-invite
+   ```
+3. **Redirect URLs** — the `?map=…` link is already covered by the
+   `https://cowboydiver.github.io/pointplanner/**` glob added above; no change
+   needed.
+4. **Templates (optional)** — customise the *Invite user* and *Magic Link*
+   templates (Authentication → Email Templates) to mention PointPlanner sharing.
+   Note: the specific map name isn't injected into the email body (a limitation
+   of using Auth's templates rather than a transactional provider) — the email
+   carries the link; the map name shows once the recipient opens it.
+
+> The built-in email sender is rate-limited and dev-grade; configure custom SMTP
+> (Authentication → Emails → SMTP) for production share volume.
+
 ## References
 
 - API keys: https://supabase.com/docs/guides/api/api-keys

@@ -355,6 +355,7 @@ body[data-theme="dark"] .act { background: #f1f0ea; color: #14161c; }
 .prereq-grid .pq .pq-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--pc); flex: 0 0 9px; }
 .prereq-grid .pq .pq-line { margin-left: auto; font-size: 11px; font-weight: 700; color: var(--ink-faint); letter-spacing: .03em; }
 .field-error { font-size: 12px; font-weight: 600; color: #D8392F; margin-top: 7px; }
+.field-note { font-size: 12px; font-weight: 600; color: #2563C9; margin-top: 7px; }
 .add-line-toggle { margin-top: 9px; font: inherit; font-weight: 700; font-size: 13px; padding: 8px 13px; border-radius: 9px; cursor: pointer; border: none; }
 .modal-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 4px; }
 .modal-actions button { font: inherit; font-weight: 700; font-size: 14px; padding: 11px 18px; border-radius: 10px; cursor: pointer; border: none; transition: transform .1s; }

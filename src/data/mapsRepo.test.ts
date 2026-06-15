@@ -18,11 +18,13 @@ function makeBuilder(result: { data: unknown; error: unknown }) {
 
 const fromMock = vi.fn();
 const getUserMock = vi.fn();
+const invokeMock = vi.fn();
 
 vi.mock('./supabase', () => ({
   supabase: {
     from: (...args: unknown[]) => fromMock(...args),
     auth: { getUser: (...args: unknown[]) => getUserMock(...args) },
+    functions: { invoke: (...args: unknown[]) => invokeMock(...args) },
   },
 }));
 
@@ -35,6 +37,7 @@ import {
   listShares,
   addShare,
   removeShare,
+  sendShareInvite,
 } from './mapsRepo';
 import { createBlankMapData } from '../lib/maps';
 
@@ -56,6 +59,7 @@ function routeFrom(builders: Record<string, ReturnType<typeof makeBuilder>>) {
 beforeEach(() => {
   fromMock.mockReset();
   getUserMock.mockReset();
+  invokeMock.mockReset();
   signInAs('me', 'me@example.com');
 });
 
@@ -271,5 +275,18 @@ describe('sharing', () => {
     expect(builder.delete).toHaveBeenCalled();
     expect(builder.eq).toHaveBeenCalledWith('map_id', 'm1');
     expect(builder.eq).toHaveBeenCalledWith('email', 'person@example.com');
+  });
+
+  it('sendShareInvite invokes the edge function with the lowercased email + role', async () => {
+    invokeMock.mockResolvedValue({ data: { ok: true }, error: null });
+    await sendShareInvite('m1', '  Person@Example.COM ', 'editor');
+    expect(invokeMock).toHaveBeenCalledWith('send-share-invite', {
+      body: { mapId: 'm1', email: 'person@example.com', role: 'editor' },
+    });
+  });
+
+  it('sendShareInvite throws when the edge function returns an error', async () => {
+    invokeMock.mockResolvedValue({ data: null, error: { message: 'no matching share' } });
+    await expect(sendShareInvite('m1', 'person@example.com', 'viewer')).rejects.toBeTruthy();
   });
 });
