@@ -91,7 +91,9 @@ import { supabase } from './data/supabase'
 const { error } = await supabase.auth.signInWithOtp({
   email,
   options: {
-    emailRedirectTo: `${window.location.origin}/`,
+    // origin omits the Vite base path; include import.meta.env.BASE_URL so the
+    // link targets /pointplanner/ on GitHub Pages (origin alone → org-root 404).
+    emailRedirectTo: `${window.location.origin}${import.meta.env.BASE_URL}`,
     // shouldCreateUser: false, // reject sign-ins from unknown emails
   },
 })
