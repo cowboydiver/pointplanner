@@ -1,73 +1,338 @@
 {
   "project": {
-    "name": "Roadmap",
-    "subtitle": "Generated from GitHub issues"
+    "name": "pointplanner",
+    "subtitle": "Graph task manager inspired by subway maps"
   },
   "lines": [
-    { "id": "design-phase", "name": "Design Phase", "color": "#D8392F", "short": "DP" },
-    { "id": "build-phase", "name": "Build Phase", "color": "#2563C9", "short": "BP" }
+    {
+      "id": "backlog",
+      "name": "Backlog",
+      "color": "#D8392F",
+      "short": "BA"
+    }
   ],
   "stations": [
     {
-      "id": "issue-1",
-      "name": "Set up design system",
-      "lines": ["design-phase"],
-      "col": 0,
+      "id": "issue-20",
+      "name": "Share a Map as Editor (async edit access)",
+      "lines": [
+        "backlog"
+      ],
+      "col": 3,
       "row": 0,
       "lp": "top",
-      "status": "done",
-      "desc": "No description yet.",
+      "status": "locked",
+      "desc": "Share a Map as Editor (async edit access).",
       "owner": "Unassigned",
-      "role": "—",
+      "role": "",
       "due": "—",
       "est": "—",
-      "tags": []
+      "tags": [
+        "ready-for-agent"
+      ],
+      "sourceUrl": "https://github.com/cowboydiver/pointplanner/issues/20"
     },
     {
-      "id": "issue-2",
-      "name": "Build component library",
-      "lines": ["design-phase"],
+      "id": "issue-19",
+      "name": "Share a Map as Viewer (read-only, email-keyed)",
+      "lines": [
+        "backlog"
+      ],
+      "col": 2,
+      "row": 0,
+      "lp": "top",
+      "status": "locked",
+      "desc": "Share a Map as Viewer (read-only, email-keyed).",
+      "owner": "Unassigned",
+      "role": "",
+      "due": "—",
+      "est": "—",
+      "tags": [
+        "needs-triage"
+      ],
+      "sourceUrl": "https://github.com/cowboydiver/pointplanner/issues/19"
+    },
+    {
+      "id": "issue-18",
+      "name": "Stale-write guard on Map autosave",
+      "lines": [
+        "backlog"
+      ],
+      "col": 2,
+      "row": 1,
+      "lp": "top",
+      "status": "locked",
+      "desc": "Stale-write guard on Map autosave.",
+      "owner": "Unassigned",
+      "role": "",
+      "due": "—",
+      "est": "—",
+      "tags": [
+        "ready-for-agent"
+      ],
+      "sourceUrl": "https://github.com/cowboydiver/pointplanner/issues/18"
+    },
+    {
+      "id": "issue-17",
+      "name": "One-time import of existing localStorage maps",
+      "lines": [
+        "backlog"
+      ],
+      "col": 2,
+      "row": 2,
+      "lp": "top",
+      "status": "locked",
+      "desc": "One-time import of existing localStorage maps.",
+      "owner": "Unassigned",
+      "role": "",
+      "due": "—",
+      "est": "—",
+      "tags": [
+        "ready-for-agent"
+      ],
+      "sourceUrl": "https://github.com/cowboydiver/pointplanner/issues/17"
+    },
+    {
+      "id": "issue-16",
+      "name": "Cloud-backed maps for the Owner (replace localStorage)",
+      "lines": [
+        "backlog"
+      ],
       "col": 1,
       "row": 0,
       "lp": "top",
-      "status": "available",
-      "desc": "No description yet.",
+      "status": "locked",
+      "desc": "Cloud-backed maps for the Owner (replace localStorage).",
       "owner": "Unassigned",
-      "role": "—",
+      "role": "",
       "due": "—",
       "est": "—",
-      "tags": []
+      "tags": [
+        "ready-for-agent"
+      ],
+      "sourceUrl": "https://github.com/cowboydiver/pointplanner/issues/16"
     },
     {
-      "id": "issue-3",
-      "name": "Ship the API",
-      "lines": ["build-phase"],
+      "id": "issue-15",
+      "name": "Supabase setup + magic-link sign-in gate",
+      "lines": [
+        "backlog"
+      ],
+      "col": 0,
+      "row": 0,
+      "lp": "top",
+      "status": "available",
+      "desc": "Supabase setup + magic-link sign-in gate.",
+      "owner": "Unassigned",
+      "role": "",
+      "due": "—",
+      "est": "—",
+      "tags": [
+        "needs-triage"
+      ],
+      "sourceUrl": "https://github.com/cowboydiver/pointplanner/issues/15"
+    },
+    {
+      "id": "issue-11",
+      "name": "Roadmap generator — agent skill doc",
+      "lines": [
+        "backlog"
+      ],
+      "col": 1,
+      "row": 1,
+      "lp": "top",
+      "status": "locked",
+      "desc": "Roadmap generator — agent skill doc.",
+      "owner": "Unassigned",
+      "role": "",
+      "due": "—",
+      "est": "—",
+      "tags": [
+        "ready-for-agent"
+      ],
+      "sourceUrl": "https://github.com/cowboydiver/pointplanner/issues/11"
+    },
+    {
+      "id": "issue-10",
+      "name": "Roadmap generator — explicit re-import (file-wins, confirmed)",
+      "lines": [
+        "backlog"
+      ],
+      "col": 1,
+      "row": 2,
+      "lp": "top",
+      "status": "locked",
+      "desc": "Roadmap generator — explicit re-import (file-wins, confirmed).",
+      "owner": "Unassigned",
+      "role": "",
+      "due": "—",
+      "est": "—",
+      "tags": [
+        "ready-for-agent"
+      ],
+      "sourceUrl": "https://github.com/cowboydiver/pointplanner/issues/10"
+    },
+    {
+      "id": "issue-9",
+      "name": "Roadmap generator — script hardening + scoping (cycles, validation, --filter)",
+      "lines": [
+        "backlog"
+      ],
+      "col": 2,
+      "row": 3,
+      "lp": "bottom",
+      "status": "locked",
+      "desc": "Roadmap generator — script hardening + scoping (cycles, validation, --filter).",
+      "owner": "Unassigned",
+      "role": "",
+      "due": "—",
+      "est": "—",
+      "tags": [
+        "ready-for-agent"
+      ],
+      "sourceUrl": "https://github.com/cowboydiver/pointplanner/issues/9"
+    },
+    {
+      "id": "issue-8",
+      "name": "Roadmap generator — rich station metadata + link back to issue",
+      "lines": [
+        "backlog"
+      ],
+      "col": 1,
+      "row": 3,
+      "lp": "bottom",
+      "status": "locked",
+      "desc": "Roadmap generator — rich station metadata + link back to issue.",
+      "owner": "Unassigned",
+      "role": "",
+      "due": "—",
+      "est": "—",
+      "tags": [
+        "ready-for-agent"
+      ],
+      "sourceUrl": "https://github.com/cowboydiver/pointplanner/issues/8"
+    },
+    {
+      "id": "issue-7",
+      "name": "Roadmap generator — deterministic subway layout helper",
+      "lines": [
+        "backlog"
+      ],
+      "col": 2,
+      "row": 4,
+      "lp": "bottom",
+      "status": "locked",
+      "desc": "Roadmap generator — deterministic subway layout helper.",
+      "owner": "Unassigned",
+      "role": "",
+      "due": "—",
+      "est": "—",
+      "tags": [
+        "ready-for-agent"
+      ],
+      "sourceUrl": "https://github.com/cowboydiver/pointplanner/issues/7"
+    },
+    {
+      "id": "issue-6",
+      "name": "Roadmap generator — dependencies become edges + status cascade",
+      "lines": [
+        "backlog"
+      ],
+      "col": 1,
+      "row": 4,
+      "lp": "bottom",
+      "status": "locked",
+      "desc": "Roadmap generator — dependencies become edges + status cascade.",
+      "owner": "Unassigned",
+      "role": "",
+      "due": "—",
+      "est": "—",
+      "tags": [
+        "ready-for-agent"
+      ],
+      "sourceUrl": "https://github.com/cowboydiver/pointplanner/issues/6"
+    },
+    {
+      "id": "issue-5",
+      "name": "Roadmap generator — tracer: minimal map from GitHub issues, viewable in app",
+      "lines": [
+        "backlog"
+      ],
       "col": 0,
       "row": 1,
       "lp": "top",
       "status": "available",
-      "desc": "No description yet.",
+      "desc": "Roadmap generator — tracer: minimal map from GitHub issues, viewable in app.",
       "owner": "Unassigned",
-      "role": "—",
+      "role": "",
       "due": "—",
       "est": "—",
-      "tags": []
-    },
-    {
-      "id": "issue-4",
-      "name": "Wire up auth",
-      "lines": ["build-phase"],
-      "col": 1,
-      "row": 1,
-      "lp": "top",
-      "status": "available",
-      "desc": "No description yet.",
-      "owner": "Unassigned",
-      "role": "—",
-      "due": "—",
-      "est": "—",
-      "tags": []
+      "tags": [
+        "ready-for-agent"
+      ],
+      "sourceUrl": "https://github.com/cowboydiver/pointplanner/issues/5"
     }
   ],
-  "edges": []
+  "edges": [
+    {
+      "from": "issue-5",
+      "to": "issue-6",
+      "line": "backlog"
+    },
+    {
+      "from": "issue-6",
+      "to": "issue-7",
+      "line": "backlog"
+    },
+    {
+      "from": "issue-5",
+      "to": "issue-8",
+      "line": "backlog"
+    },
+    {
+      "from": "issue-6",
+      "to": "issue-9",
+      "line": "backlog"
+    },
+    {
+      "from": "issue-5",
+      "to": "issue-10",
+      "line": "backlog"
+    },
+    {
+      "from": "issue-5",
+      "to": "issue-11",
+      "line": "backlog"
+    },
+    {
+      "from": "issue-15",
+      "to": "issue-16",
+      "line": "backlog"
+    },
+    {
+      "from": "issue-16",
+      "to": "issue-17",
+      "line": "backlog"
+    },
+    {
+      "from": "issue-16",
+      "to": "issue-18",
+      "line": "backlog"
+    },
+    {
+      "from": "issue-16",
+      "to": "issue-19",
+      "line": "backlog"
+    },
+    {
+      "from": "issue-18",
+      "to": "issue-20",
+      "line": "backlog"
+    },
+    {
+      "from": "issue-19",
+      "to": "issue-20",
+      "line": "backlog"
+    }
+  ]
 }
