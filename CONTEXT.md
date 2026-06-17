@@ -31,6 +31,7 @@ PointPlanner renders a project as a **subway transit map**: tasks are **stations
 | **Editor** | A User granted asynchronous edit access to a shared map — may change anything in it, but not re-share or delete it |
 | **Viewer** | A User granted read-only access to a shared map |
 | **Share** | The act (and the record) of granting another User an Editor or Viewer role on a map |
+| **Invite** | The email sent to a User when they're shared a map — a link that opens that map after sign-in. Best-effort and separate from the Share grant; can be re-sent |
 
 ### What to avoid here
 

@@ -130,6 +130,52 @@ Authentication → **URL Configuration**
 - To switch from magic link to a 6-digit code, edit the Magic Link template
   (Authentication → Email Templates) to include `{{ .Token }}`.
 
+## Edge Functions: share-invite emails
+
+Sharing emails the recipient a link to the map. The browser can't send mail (it
+only holds the publishable key and there's no backend), so a single **Edge
+Function** does it: [`supabase/functions/send-share-invite`](../supabase/functions/send-share-invite/index.ts).
+The SPA calls it via `supabase.functions.invoke('send-share-invite', …)`
+(`sendShareInvite` in `src/data/mapsRepo.ts`) right after granting the share.
+
+It sends a custom, branded email through **[Resend](https://resend.com)** that
+names the inviter, the map and the role. The email links to a plain,
+non-expiring deep link `${APP_URL}?map=<id>`; the recipient signs in with that
+email (the existing magic-link flow — a brand-new email creates an account) and
+the app opens the shared map (`main.tsx` captures the param and survives the
+sign-in via sessionStorage; `mapRegistry` opens it). The function is also an
+anti-abuse boundary: it verifies the caller owns the map and that a `map_shares`
+row already exists for the recipient's email before sending, so it can't be used
+as an open relay.
+
+### Human setup (one-time)
+
+1. **Resend account** — sign up at resend.com, **verify a sending domain**
+   (Domains → Add), and create an API key (API Keys → Create). For quick testing
+   you can use Resend's `onboarding@resend.dev` sender, which only delivers to
+   your own account email.
+2. **Secrets:**
+   ```bash
+   supabase secrets set \
+     RESEND_API_KEY=re_... \
+     INVITE_FROM="PointPlanner <invites@your-verified-domain.com>" \
+     APP_URL=https://cowboydiver.github.io/pointplanner/
+   ```
+   (`SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY` are injected
+   automatically — do **not** set them yourself.)
+3. **Deploy:**
+   ```bash
+   supabase functions deploy send-share-invite
+   ```
+4. **Redirect URLs** — the `?map=…` deep link is already covered by the
+   `https://cowboydiver.github.io/pointplanner/**` glob added above; no change
+   needed.
+
+> The invite link is a normal app URL, not a one-time auth link, so it never
+> expires — a recipient can open it days later and simply sign in. Sign-in itself
+> still uses Supabase's magic-link email (configure custom SMTP for production
+> sign-in volume; see above).
+
 ## References
 
 - API keys: https://supabase.com/docs/guides/api/api-keys
