@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { useMapRegistry } from '../store/mapRegistry';
+import { parseMapFile } from '../lib/importMap';
 import { ConfirmDialog } from './ConfirmDialog';
 
 export function MapSwitcher() {
@@ -7,6 +8,7 @@ export function MapSwitcher() {
     index,
     activeMeta,
     createMap,
+    importMap,
     selectMap,
     renameMapById,
     deleteMapById,
@@ -16,6 +18,7 @@ export function MapSwitcher() {
   const [open, setOpen] = useState(false);
   const [pendingDelete, setPendingDelete] = useState<{ id: string; name: string } | null>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Close on outside click and Escape
   useEffect(() => {
@@ -78,6 +81,34 @@ export function MapSwitcher() {
     }
   }
 
+  function handleImportClick() {
+    fileInputRef.current?.click();
+  }
+
+  async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    // Reset so picking the same file again still fires a change event.
+    e.target.value = '';
+    if (!file) return;
+
+    let text: string;
+    try {
+      text = await file.text();
+    } catch {
+      window.alert('Could not read the selected file.');
+      return;
+    }
+
+    const result = parseMapFile(text);
+    if (!result.ok) {
+      window.alert(`Could not import map: ${result.error}`);
+      return;
+    }
+
+    importMap(result.name, result.data);
+    setOpen(false);
+  }
+
   const displayName = activeMeta?.name ?? 'Maps';
 
   return (
@@ -92,6 +123,14 @@ export function MapSwitcher() {
         {displayName}
         <span className="map-switcher-caret" aria-hidden="true">▾</span>
       </button>
+
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="application/json,.json"
+        hidden
+        onChange={handleFileChange}
+      />
 
       {open && (
         <div className="map-menu" role="listbox" aria-label="Maps">
@@ -155,6 +194,13 @@ export function MapSwitcher() {
               onClick={handleNewMap}
             >
               + New map
+            </button>
+            <button
+              className="map-menu-new"
+              type="button"
+              onClick={handleImportClick}
+            >
+              ↥ Import map…
             </button>
           </div>
         </div>
