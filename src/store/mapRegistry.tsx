@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { createSeedMapData, createBlankMapData, chooseInitialMap } from '../lib/maps';
+import type { MapData } from '../lib/maps';
 import * as repo from '../data/mapsRepo';
 import type { MapListItem } from '../data/mapsRepo';
 
@@ -26,6 +27,9 @@ interface MapRegistryContextValue {
   // keeping the active map if it still exists else choosing the first.
   refreshMaps: () => Promise<void>;
   createMap: (name: string) => void;
+  // Import a map parsed from a generated `maps/*.json` file (roadmap-map skill)
+  // as a new owned map, made active.
+  importMap: (name: string, data: MapData) => void;
   selectMap: (id: string) => void;
   renameMapById: (id: string, name: string) => void;
   deleteMapById: (id: string) => void;
@@ -74,16 +78,26 @@ export function MapRegistryProvider({ children }: { children: React.ReactNode })
     ? (index.maps.find(m => m.id === index.activeMapId) ?? null)
     : null;
 
-  function createMap(name: string): void {
+  // Persist a new owned map and make it active. Shared by createMap (blank) and
+  // importMap (data from a generated file).
+  function addOwnedMap(name: string, data: MapData, context: string): void {
     void (async () => {
       try {
-        const meta = await repo.createMap(name, createBlankMapData(name));
+        const meta = await repo.createMap(name, data);
         const item: MapListItem = { ...meta, role: 'owner' };
         setIndex(prev => ({ activeMapId: item.id, maps: [item, ...prev.maps] }));
       } catch (err) {
-        console.error('Failed to create map', err);
+        console.error(context, err);
       }
     })();
+  }
+
+  function createMap(name: string): void {
+    addOwnedMap(name, createBlankMapData(name), 'Failed to create map');
+  }
+
+  function importMap(name: string, data: MapData): void {
+    addOwnedMap(name, data, 'Failed to import map');
   }
 
   function selectMap(id: string): void {
@@ -176,6 +190,7 @@ export function MapRegistryProvider({ children }: { children: React.ReactNode })
     reloadActiveMap,
     refreshMaps,
     createMap,
+    importMap,
     selectMap,
     renameMapById,
     deleteMapById,
