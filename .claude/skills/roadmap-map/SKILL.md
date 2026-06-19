@@ -1,14 +1,18 @@
 ---
 name: roadmap-map
-description: Generate a PointPlanner roadmap map from this repo's GitHub issues — fetch via gh, run the generator, review the maps/*.json diff and stdout warnings, and commit. Use when the user wants to (re)generate a roadmap, build a map from GitHub issues, or refresh maps/roadmap.json.
+description: Generate a PointPlanner roadmap map from a repo's GitHub issues — fetch via gh, run the bundled generator, review the maps/*.json diff and stdout warnings, and commit. Use when the user wants to (re)generate a roadmap, build a map from GitHub issues, or refresh maps/roadmap.json.
 ---
 
 # Roadmap map
 
-Turn this repo's GitHub issues into a PointPlanner map (a `maps/*.json` file the
-app bundles and renders). The conventions the generator follows are documented in
-[`docs/agents/roadmap-map.md`](../../../docs/agents/roadmap-map.md) — read it
-before running so you can review the output, not just produce it.
+Turn a repo's GitHub issues into a [PointPlanner](https://github.com/cowboydiver/pointplanner)
+map — a `maps/*.json` file PointPlanner bundles and renders as a subway-style
+dependency map. This skill is **self-contained**: the generator and the pure
+transform it needs are vendored under [`scripts/`](scripts/), so it works in any
+repo with `gh` and Node, not just PointPlanner itself.
+
+Read [`REFERENCE.md`](REFERENCE.md) for the mapping conventions before running, so
+you can review the output rather than just produce it.
 
 ## When to use
 
@@ -16,23 +20,43 @@ before running so you can review the output, not just produce it.
 - "Build a map from our GitHub issues."
 - "Make a map for the `v1.0` milestone" (a scoped, `--filter`ed map).
 
+## Prerequisites
+
+- `gh` (GitHub CLI) installed and authenticated; the generator infers the repo
+  from the current checkout (`gh repo view`).
+- Node 20+ for running the bundled TypeScript via `tsx` (`npx tsx` fetches it on
+  demand — no install or build step needed).
+
 ## The flow
 
 1. **Confirm scope.** Whole repo (`maps/roadmap.json`) or a single label /
    milestone (`maps/<slug>.json`)? Default to the whole repo unless the user
    names a milestone or label.
 
-2. **Fetch + generate.** Run the one npm script — it shells out to `gh` for you
-   (issues, milestones, and the `gh api graphql` sub-issue / blocked-by query),
-   runs the pure transform, and writes the JSON:
+2. **Fetch + generate.** Run the generator from the repo root. It shells out to
+   `gh` for you (issues, milestones, and the `gh api graphql` sub-issue /
+   blocked-by query), runs the pure transform, and writes the JSON.
+
+   If the host repo already exposes a `generate-map` npm script (PointPlanner
+   does), prefer it — it's wired to that project's own tested source:
 
    ```bash
    npm run generate-map                       # → maps/roadmap.json
    npm run generate-map -- --filter v1.0      # → maps/<slug>.json, scoped
    ```
 
-   `gh` must be installed and authenticated; the script infers the repo from the
-   current clone. Do not call `gh` by hand or hand-edit the JSON.
+   Otherwise run the bundled standalone generator (adjust the path if the skill
+   lives somewhere other than `.claude/skills/`):
+
+   ```bash
+   npx tsx .claude/skills/roadmap-map/scripts/generate-map.ts                # → maps/roadmap.json
+   npx tsx .claude/skills/roadmap-map/scripts/generate-map.ts --filter v1.0  # → maps/<slug>.json
+   npx tsx .claude/skills/roadmap-map/scripts/generate-map.ts --out roadmaps # write to ./roadmaps
+   ```
+
+   Output goes to `./maps` under the current directory by default; override with
+   `--out <dir>` or the `ROADMAP_MAP_DIR` env var. Do not call `gh` by hand or
+   hand-edit the JSON.
 
 3. **Read stdout.** Check the run's output before trusting the map:
    - **Dropped edges** — pairs the generator couldn't honor, including edges cut
@@ -55,8 +79,7 @@ before running so you can review the output, not just produce it.
 
 ## Conventions (summary)
 
-See [`docs/agents/roadmap-map.md`](../../../docs/agents/roadmap-map.md) for the
-full reference. In brief:
+See [`REFERENCE.md`](REFERENCE.md) for the full reference. In brief:
 
 - **Milestones → lines** (creation order, deterministic); no-milestone issues →
   a `Backlog` line. One line per station (no interchanges in v1).
@@ -64,7 +87,5 @@ full reference. In brief:
   (via `gh api graphql`) with `Depends on #N` / `Blocked by #N` body text as a
   fallback. Each edge is colored by the downstream station's line.
 - **Status**: closed → `done`; a `wip` / `in-progress` issue → `active`;
-  everything else is settled to `locked` / `available` by the `recompute`
-  cascade.
+  everything else is settled to `locked` / `available` by the dependency cascade.
 - A **closed** issue only becomes a station when an open issue depends on it.
-</content>
