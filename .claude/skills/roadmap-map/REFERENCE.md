@@ -6,6 +6,37 @@ How the bundled generator turns a repo's GitHub issues into a PointPlanner map (
 is vendored under [`scripts/lib/`](scripts/lib/). This doc records the conventions
 that transform follows so a generated map is reviewable rather than mysterious.
 
+## Installing this skill in another repo
+
+The skill is self-contained — its directory carries everything it needs
+(`SKILL.md`, this `REFERENCE.md`, and the bundled `scripts/`). To use it in
+another repo, copy that one directory in and commit it.
+
+```bash
+# From a local clone of pointplanner sitting next to the target repo:
+cp -r ../pointplanner/.claude/skills/roadmap-map .claude/skills/
+
+# Or pull just this directory from GitHub without a full clone:
+git clone --depth 1 --filter=blob:none --sparse \
+  https://github.com/cowboydiver/pointplanner /tmp/pp
+( cd /tmp/pp && git sparse-checkout set .claude/skills/roadmap-map )
+mkdir -p .claude/skills && cp -r /tmp/pp/.claude/skills/roadmap-map .claude/skills/
+```
+
+Claude Code discovers the skill automatically from `.claude/skills/` (or
+`.agents/skills/` — both locations work). It needs only:
+
+- **`gh`** installed and authenticated (`gh auth status`).
+- **Node 20+** (`npx tsx` fetches `tsx` on demand — no install or build step).
+
+The output is PointPlanner map JSON, so the consuming repo doesn't need to *be*
+PointPlanner — any repo whose roadmap you want to view/edit in PointPlanner can
+use it.
+
+Because it's a vendored copy, it won't track upstream changes; re-copy the
+directory to refresh. To manage updates across several repos, publish it to a
+shared skills repo and install from there (lockfile-tracked) instead of copying.
+
 ## The flow
 
 1. **Fetch** the issue data via the `gh` CLI (the script shells out for you — see
