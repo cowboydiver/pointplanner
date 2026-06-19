@@ -62,6 +62,7 @@ Supabase SQL editor (paste & run) or the CLI (`supabase db push`).
 | `0003_map_editor_update.sql` | additive Editor update policy on `maps` (#20) |
 | `0004_harden_current_email.sql` | pin `search_path` on `current_email()` (linter `function_search_path_mutable`) |
 | `0005_private_rls_helpers.sql` | move the `SECURITY DEFINER` helpers into a non-exposed `private` schema so they aren't PostgREST RPC-callable (linter `0028`/`0029`) |
+| `0006_github_synced_maps.sql` | `source`/`is_public` columns + `maps_select_public` RLS + NULL-able `owner` for the canonical GitHub-synced roadmap row; adds `maps` to the Realtime publication (see [ADR 0003](adr/0003-github-synced-roadmap-map.md)) |
 
 > **Security note on the helpers.** `is_map_owner` / `map_share_role` are
 > `SECURITY DEFINER`, which is what lets the `maps` and `map_shares` policies
@@ -76,6 +77,30 @@ Supabase SQL editor (paste & run) or the CLI (`supabase db push`).
 
 After any schema change, run the database linter (Advisors → Security in the
 dashboard, or the Supabase MCP `get_advisors` tool) and confirm it is clean.
+
+## Server-side roadmap sync (CI)
+
+The SPA uses only the publishable key. The **one** place a secret key is used is
+CI: the `Sync roadmap map` GitHub Action
+([`.github/workflows/sync-roadmap.yml`](../.github/workflows/sync-roadmap.yml))
+keeps the canonical GitHub-synced roadmap row in step with the issue tracker
+(see [ADR 0003](adr/0003-github-synced-roadmap-map.md)). It runs
+`npm run sync-roadmap`, which fetches issues via `gh`, runs the same transform as
+`generate-map`, and upserts the public roadmap row using the **service-role**
+key (which bypasses RLS to write the owner-less row).
+
+Set these as repository **Secrets** (Settings → Secrets and variables → Actions →
+**Secrets** — *not* Variables, unlike the publishable `VITE_*` values used by
+`deploy.yml`):
+
+| Secret | Value |
+| --- | --- |
+| `SUPABASE_URL` | the Project URL (same as `VITE_SUPABASE_URL`) |
+| `SUPABASE_SERVICE_ROLE_KEY` | the **secret** key `sb_secret_…` (Settings → API Keys) |
+
+`GH_TOKEN` is the workflow's built-in `secrets.GITHUB_TOKEN`; no extra setup. The
+key bypasses RLS, so it must never be exposed to the browser or placed behind a
+`VITE_` prefix.
 
 ## Auth: magic link / email OTP
 

@@ -92,6 +92,22 @@ describe('listMaps', () => {
     expect(metas).toEqual([{ id: 'b', name: 'Beta', role: 'editor' }]);
   });
 
+  it('labels a public, non-owned, non-shared row "viewer"', async () => {
+    // The GitHub-synced roadmap is owned by no user (service-role write) and is
+    // exposed via the is_public RLS policy. RLS returns it from the list; with no
+    // ownership and no share, role resolution falls through to read-only viewer.
+    routeFrom({
+      maps: makeBuilder({
+        data: [{ id: 'roadmap', name: 'widget', owner: null }],
+        error: null,
+      }),
+      map_shares: makeBuilder({ data: [], error: null }),
+    });
+
+    const metas = await listMaps();
+    expect(metas).toEqual([{ id: 'roadmap', name: 'widget', role: 'viewer' }]);
+  });
+
   it('throws on error', async () => {
     routeFrom({ maps: makeBuilder({ data: null, error: { message: 'boom' } }) });
     await expect(listMaps()).rejects.toBeTruthy();

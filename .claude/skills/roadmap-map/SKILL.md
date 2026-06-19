@@ -53,6 +53,16 @@ before running so you can review the output, not just produce it.
 5. **Commit.** Commit the regenerated map(s) on their own. The map is downstream
    of the tracker — never modify GitHub issues as part of generating it.
 
+## Automatic sync
+
+This skill is the **manual** path — it produces the reviewable `maps/*.json`
+artifact. A GitHub Action (`.github/workflows/sync-roadmap.yml`, `npm run
+sync-roadmap`) separately keeps a canonical **read-only** roadmap row in Supabase
+in step with the tracker on issue activity + nightly (GitHub wins, overwrite). The
+two share their fetch + transform code. Use this skill for the committed file or a
+`--filter`ed map; the Action handles the live cloud copy. See
+[`docs/agents/roadmap-map.md`](../../../docs/agents/roadmap-map.md#automatic-sync-to-supabase).
+
 ## Conventions (summary)
 
 See [`docs/agents/roadmap-map.md`](../../../docs/agents/roadmap-map.md) for the

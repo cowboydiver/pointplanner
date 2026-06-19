@@ -127,3 +127,26 @@ milestone's slice) alongside the full roadmap.
 Review the `maps/*.json` diff like any other change, then commit it. Do not modify
 the source GitHub issues as part of generating a map — the map is downstream of the
 tracker, not the other way around.
+
+## Automatic sync to Supabase
+
+`generate-map` is the **manual** path: it writes the reviewable `maps/*.json`
+artifact. Alongside it, a GitHub Action keeps a **canonical, read-only roadmap row
+in Supabase** in step with the tracker automatically — so issues closing, deps
+changing, or descriptions being edited update the live map without a re-import.
+
+- **Job:** [`.github/workflows/sync-roadmap.yml`](../../.github/workflows/sync-roadmap.yml)
+  runs on `issues` activity (near-instant) and a nightly cron (catches sub-issue /
+  `blocked by` relationship changes, which don't fire `issues` events).
+- **Script:** `npm run sync-roadmap` (`scripts/sync-roadmap.ts`) reuses the same
+  fetch (`scripts/githubFetch.ts`) + transform + validation as `generate-map`, then
+  upserts the canonical row via the Supabase **service role**
+  (`src/data/roadmapSync.ts`). **GitHub wins** — the row is overwritten and is
+  read-only to all users (it has no owner; see [ADR 0003](../adr/0003-github-synced-roadmap-map.md)).
+- **Setup:** the `SUPABASE_URL` / `SUPABASE_SERVICE_ROLE_KEY` secrets and the
+  `0006_github_synced_maps.sql` migration — see
+  [docs/supabase-setup.md](../supabase-setup.md).
+
+The committed `maps/roadmap.json` and the synced Supabase row share their fetch +
+transform code, so they cannot diverge. Use `generate-map` when you want the
+committed artifact or a `--filter`ed map; the Action handles the live cloud copy.

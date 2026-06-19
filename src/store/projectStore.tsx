@@ -2,6 +2,7 @@ import React, { createContext, useContext, useReducer, useMemo, useEffect, useRe
 import { buildIndexes, type Indexes } from '../lib/indexes';
 import { createSeedMapData } from '../lib/maps';
 import { loadMap, saveMap, type MapRole } from '../data/mapsRepo';
+import { supabase } from '../data/supabase';
 import { useMapRegistry } from './mapRegistry';
 import { reducer, type StoreState, type PersistedState, type Action } from './reducer';
 
@@ -167,6 +168,31 @@ function LoadedStore({
     }, AUTOSAVE_DEBOUNCE_MS);
     return () => clearTimeout(handle);
   }, [mapId, readOnly, stale, state.project, state.lines, state.stations, state.edges]);
+
+  // Live refresh for read-only maps (the GitHub-synced public roadmap, or a
+  // Viewer share). When the row changes server-side — e.g. the sync job
+  // overwrites the roadmap after an issue closes — reload the active map so the
+  // open view tracks it. Gated on `readOnly` so it never fights an Owner/Editor's
+  // own autosave (that would reload mid-edit). The ref keeps the latest reload
+  // callback without resubscribing every render.
+  const reloadRef = useRef(reloadActiveMap);
+  useEffect(() => {
+    reloadRef.current = reloadActiveMap;
+  });
+  useEffect(() => {
+    if (!readOnly) return;
+    const channel = supabase
+      .channel(`map:${mapId}`)
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'maps', filter: `id=eq.${mapId}` },
+        () => reloadRef.current(),
+      )
+      .subscribe();
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+  }, [readOnly, mapId]);
 
   // Apply theme to body
   useEffect(() => {

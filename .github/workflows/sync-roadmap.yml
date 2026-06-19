@@ -1,0 +1,55 @@
+name: Sync roadmap map
+
+# Keep the canonical roadmap map in Supabase in step with the issue tracker.
+# Issue activity triggers a near-instant resync; the nightly cron catches
+# changes that don't fire `issues` events — most importantly sub-issue and
+# `blocked by` relationship edits (dependency changes).
+on:
+  issues:
+    types:
+      - opened
+      - closed
+      - reopened
+      - edited
+      - labeled
+      - unlabeled
+      - milestoned
+      - demilestoned
+      - assigned
+      - unassigned
+  schedule:
+    # 07:00 UTC daily.
+    - cron: '0 7 * * *'
+  workflow_dispatch:
+
+# `gh` (issues + the sub-issue GraphQL query) needs issue read; checkout needs
+# contents read. The job writes only to Supabase, not back to the repo.
+permissions:
+  contents: read
+  issues: read
+
+# Don't pile up concurrent syncs; the latest issue state wins anyway.
+concurrency:
+  group: sync-roadmap
+  cancel-in-progress: true
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run sync-roadmap
+        env:
+          # `gh` is preinstalled on GitHub-hosted runners; it authenticates from
+          # GH_TOKEN. The default token can read issues + sub-issue relationships.
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Service-role write path. SUPABASE_SERVICE_ROLE_KEY bypasses RLS, so it
+          # MUST be a repository Secret (Settings → Secrets and variables →
+          # Actions → Secrets) — never a Variable. SUPABASE_URL is the project URL.
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
