@@ -4,6 +4,7 @@ import {
   githubToMapReport,
   scopeInputByFilter,
   slugify,
+  splitTitlePrefix,
   type GitHubIssue,
   type GitHubMilestone,
   type GitHubRelationship,
@@ -388,5 +389,137 @@ describe('githubToMap', () => {
       'https://github.com/cowboydiver/pointplanner/issues/1',
     );
     expect(map.stations.find(s => s.id === 'issue-2')!.sourceUrl).toBeUndefined();
+  });
+
+  // ---- Title-prefix lines: derive a line from a shared, delimited prefix ----
+
+  it('groups 2+ milestone-less issues sharing a delimited prefix into one line, named verbatim', () => {
+    const map = githubToMap({
+      issues: [
+        open(1, 'Roadmap generator — agent skill doc'),
+        open(2, 'Roadmap generator — explicit re-import'),
+      ],
+      milestones: [],
+    });
+    const line = map.lines.find(l => l.name === 'Roadmap generator');
+    expect(line).toBeDefined();
+    // No Backlog needed — every issue found a prefix line.
+    expect(map.lines.find(l => l.name === 'Backlog')).toBeUndefined();
+    // Both stations sit on the prefix line.
+    expect(map.stations.every(s => s.lines[0] === line!.id)).toBe(true);
+  });
+
+  it('strips the shared prefix from member station names and capitalizes the remainder', () => {
+    const map = githubToMap({
+      issues: [
+        open(1, 'Roadmap generator — agent skill doc'),
+        open(2, 'Roadmap generator — explicit re-import'),
+      ],
+      milestones: [],
+    });
+    expect(map.stations.find(s => s.id === 'issue-1')!.name).toBe('Agent skill doc');
+    expect(map.stations.find(s => s.id === 'issue-2')!.name).toBe('Explicit re-import');
+  });
+
+  it('keeps a unique delimited prefix (group of 1) on Backlog with its full title', () => {
+    const map = githubToMap({
+      issues: [
+        open(1, 'Roadmap generator — agent skill doc'),
+        open(2, 'Roadmap generator — explicit re-import'),
+        open(3, 'Solo epic — only child'),
+      ],
+      milestones: [],
+    });
+    const backlog = map.lines.find(l => l.name === 'Backlog')!;
+    const solo = map.stations.find(s => s.id === 'issue-3')!;
+    expect(solo.lines).toEqual([backlog.id]);
+    expect(solo.name).toBe('Solo epic — only child'); // untouched
+    expect(map.lines.find(l => l.name === 'Solo epic')).toBeUndefined();
+  });
+
+  it('groups across delimiter variants but never splits a hyphenated word', () => {
+    const map = githubToMap({
+      issues: [
+        open(1, 'Auth: sign-in'),
+        open(2, 'Auth: sign-out'),
+        open(3, 'Sync – pull'),
+        open(4, 'Sync – push'),
+        open(5, 'Cloud-backed maps for the Owner'),
+        open(6, 'Cloud-backed storage layer'),
+      ],
+      milestones: [],
+    });
+    expect(map.lines.find(l => l.name === 'Auth')).toBeDefined();
+    expect(map.lines.find(l => l.name === 'Sync')).toBeDefined();
+    // The bare hyphen in "Cloud-backed" is not a delimiter, so #5/#6 don't group.
+    expect(map.lines.find(l => l.name === 'Cloud')).toBeUndefined();
+    const backlog = map.lines.find(l => l.name === 'Backlog')!;
+    expect(map.stations.find(s => s.id === 'issue-5')!.lines).toEqual([backlog.id]);
+  });
+
+  it('lets a milestone win over a shared prefix (milestoned issue is not grouped)', () => {
+    const ms: GitHubMilestone[] = [{ title: 'Phase 1', number: 1 }];
+    const map = githubToMap({
+      issues: [
+        { ...open(1, 'Roadmap generator — agent skill doc'), milestone: ms[0] },
+        open(2, 'Roadmap generator — explicit re-import'),
+        open(3, 'Roadmap generator — script hardening'),
+      ],
+      milestones: ms,
+    });
+    const phase1 = map.lines.find(l => l.name === 'Phase 1')!;
+    // #1 stays on its milestone line with its full, unstripped title.
+    const s1 = map.stations.find(s => s.id === 'issue-1')!;
+    expect(s1.lines).toEqual([phase1.id]);
+    expect(s1.name).toBe('Roadmap generator — agent skill doc');
+    // #2 and #3 still form the prefix line (2 milestone-less members).
+    const prefixLine = map.lines.find(l => l.name === 'Roadmap generator')!;
+    expect(map.stations.find(s => s.id === 'issue-2')!.lines).toEqual([prefixLine.id]);
+    expect(map.stations.find(s => s.id === 'issue-3')!.lines).toEqual([prefixLine.id]);
+  });
+
+  it('orders lines milestone → prefix groups (by lowest issue number) → Backlog', () => {
+    const ms: GitHubMilestone[] = [{ title: 'Phase 1', number: 1 }];
+    const map = githubToMap({
+      issues: [
+        { ...open(1, 'Milestoned'), milestone: ms[0] },
+        open(10, 'Beta — one'),
+        open(11, 'Beta — two'),
+        open(2, 'Alpha — one'),
+        open(3, 'Alpha — two'),
+        open(4, 'Lonely orphan'),
+      ],
+      milestones: ms,
+    });
+    // Alpha (min #2) precedes Beta (min #10); Backlog last; milestone first.
+    expect(map.lines.map(l => l.name)).toEqual([
+      'Phase 1',
+      'Alpha',
+      'Beta',
+      'Backlog',
+    ]);
+    const map2 = githubToMap({ issues: [], milestones: [] });
+    expect(validateMapData(map2)).toEqual([]);
+  });
+
+  it('names a prefix line from the lowest-numbered member, regardless of input order', () => {
+    // Same slug-equal prefix in differing casing; the lower issue number (#2)
+    // sets the displayed casing even though #5 appears first in input order.
+    const map = githubToMap({
+      issues: [open(5, 'auth: sign-out'), open(2, 'Auth: sign-in')],
+      milestones: [],
+    });
+    expect(map.lines.find(l => l.name === 'Auth')).toBeDefined();
+    expect(map.lines.find(l => l.name === 'auth')).toBeUndefined();
+  });
+
+  it('splitTitlePrefix returns null without a delimiter or with an empty side', () => {
+    expect(splitTitlePrefix('No delimiter here')).toBeNull();
+    expect(splitTitlePrefix('Cloud-backed maps')).toBeNull(); // bare hyphen ignored
+    expect(splitTitlePrefix(': leading colon')).toBeNull(); // empty prefix
+    expect(splitTitlePrefix('Roadmap generator — agent skill doc')).toEqual({
+      prefix: 'Roadmap generator',
+      rest: 'agent skill doc',
+    });
   });
 });

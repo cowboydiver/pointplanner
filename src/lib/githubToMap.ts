@@ -89,6 +89,42 @@ export function slugify(raw: string): string {
 }
 
 /**
+ * Delimiters that separate a shared title prefix (the would-be line name) from
+ * the issue-specific remainder. The spaced hyphen ` - ` is intentional — a bare
+ * `-` would split hyphenated words like "Cloud-backed". Tried in order; the
+ * earliest match in the title wins.
+ */
+const PREFIX_DELIMITERS = [':', '—', '–', ' - '];
+
+/**
+ * Split a title on its first prefix delimiter into `{ prefix, rest }`, both
+ * trimmed and verbatim (original casing). Returns null when no delimiter is
+ * present (the title can't contribute to a shared-prefix line). An empty prefix
+ * or empty remainder also yields null — neither side is usable.
+ */
+export function splitTitlePrefix(
+  title: string,
+): { prefix: string; rest: string } | null {
+  let best: { index: number; len: number } | null = null;
+  for (const delim of PREFIX_DELIMITERS) {
+    const idx = title.indexOf(delim);
+    if (idx >= 0 && (best === null || idx < best.index)) {
+      best = { index: idx, len: delim.length };
+    }
+  }
+  if (best === null) return null;
+  const prefix = title.slice(0, best.index).trim();
+  const rest = title.slice(best.index + best.len).trim();
+  if (!prefix || !rest) return null;
+  return { prefix, rest };
+}
+
+/** Uppercase the first character, leaving the rest of the string untouched. */
+function capitalizeFirst(s: string): string {
+  return s ? s[0].toUpperCase() + s.slice(1) : s;
+}
+
+/**
  * Scope a transform input to issues matching `filter` (a label name or a
  * milestone title, matched case-insensitively by slug). Returns a new input with
  * only the matching issues and only the milestones those issues reference, so a
@@ -245,8 +281,11 @@ function isSignalLabel(name: string): boolean {
  * - One open issue = one station (name ← title). A *closed* issue surfaces as a
  *   station only when an open issue depends on it (rendered as a `done` prereq);
  *   closed issues with no open dependent are excluded.
- * - Each milestone becomes a line (in milestone order); issues with no
- *   milestone land on a single catch-all `Backlog` line.
+ * - Lines are derived in three tiers, in order: each milestone becomes a line
+ *   (in milestone order); then milestone-less issues sharing a delimited title
+ *   prefix (2+ members) form a line named by that prefix, with the prefix
+ *   stripped from each member's station name; everything else lands on a single
+ *   catch-all `Backlog` line.
  * - Issue relationships (native sub-issue / blocked-by links, plus a
  *   `Depends on #N` / `Blocked by #N` body-text fallback) become edges. Each
  *   edge is colored by the downstream (`to`) station's line; `df` is left off
@@ -325,7 +364,57 @@ export function githubToMapReport(input: GithubToMapInput): GithubToMapResult {
     return dependentsOfClosed.has(iss.number);
   });
 
-  // ---- 3. Build lines in milestone order, then append Backlog only if needed. ----
+  // ---- 2b. Group milestone-less issues by a shared, delimiter-based prefix. ----
+  // A prefix shared by 2+ such issues becomes its own line (named verbatim from
+  // the prefix); the prefix is later stripped from each member's station name.
+  // Milestoned issues are excluded — their milestone already names their line.
+  interface PrefixGroup {
+    key: string; // slug, the grouping identity (case-insensitive)
+    name: string; // verbatim prefix from the first member (display name)
+    minNumber: number; // lowest member issue number, for deterministic ordering
+    members: number[];
+  }
+  const groupByKey = new Map<string, PrefixGroup>();
+  const groupKeyByNumber = new Map<number, string>();
+  const restByNumber = new Map<number, string>(); // stripped remainder per member
+  for (const iss of includedIssues) {
+    if (iss.milestone) continue;
+    const split = splitTitlePrefix(iss.title);
+    if (!split) continue;
+    const key = slugify(split.prefix);
+    groupKeyByNumber.set(iss.number, key);
+    restByNumber.set(iss.number, split.rest);
+    const existing = groupByKey.get(key);
+    if (existing) {
+      existing.members.push(iss.number);
+      // Name uses the lowest-numbered member's casing, so the displayed name is
+      // deterministic (independent of input order) and consistent with the
+      // lowest-issue-number rule that orders the lines.
+      if (iss.number < existing.minNumber) {
+        existing.minNumber = iss.number;
+        existing.name = split.prefix;
+      }
+    } else {
+      groupByKey.set(key, {
+        key,
+        name: split.prefix,
+        minNumber: iss.number,
+        members: [iss.number],
+      });
+    }
+  }
+  // Keep only groups of 2+; order them by lowest member issue number.
+  const keptGroups = [...groupByKey.values()]
+    .filter(g => g.members.length >= 2)
+    .sort((a, b) => a.minNumber - b.minNumber);
+  const keptGroupKeys = new Set(keptGroups.map(g => g.key));
+  // Is this issue a member of a line-forming (kept) prefix group?
+  const inKeptGroup = (n: number): boolean =>
+    keptGroupKeys.has(groupKeyByNumber.get(n) ?? '');
+
+  // ---- 3. Build lines: milestones, then prefix groups, then Backlog. ----
+  // Each line's color is taken from the palette at its push position, so all
+  // three kinds of line cycle the colors distinctly.
   const usedLineIds = new Set<string>();
   const usedShorts = new Set<string>();
   const lines: Line[] = [];
@@ -334,21 +423,36 @@ export function githubToMapReport(input: GithubToMapInput): GithubToMapResult {
   const dueByMilestone = new Map<string, string | null | undefined>();
   milestones.forEach(m => dueByMilestone.set(m.title, m.dueOn));
 
-  milestones.forEach((m, i) => {
+  milestones.forEach(m => {
     const id = slugifyId(m.title, usedLineIds);
     lineIdByMilestone.set(m.title, id);
     lines.push({
       id,
       name: m.title,
-      color: LINE_COLORS[i % LINE_COLORS.length],
+      color: LINE_COLORS[lines.length % LINE_COLORS.length],
       short: shortCode(m.title, usedShorts),
     });
   });
 
-  // A Backlog line is needed when an issue has no milestone, OR when there are
-  // no lines at all yet (empty repo / no milestones) — every valid map must have
-  // at least one line, and the app's EmptyState renders the zero-station case.
-  const hasBacklog = includedIssues.some(iss => !iss.milestone) || lines.length === 0;
+  const lineIdByGroupKey = new Map<string, string>();
+  keptGroups.forEach(g => {
+    const id = slugifyId(g.name, usedLineIds);
+    lineIdByGroupKey.set(g.key, id);
+    lines.push({
+      id,
+      name: g.name,
+      color: LINE_COLORS[lines.length % LINE_COLORS.length],
+      short: shortCode(g.name, usedShorts),
+    });
+  });
+
+  // A Backlog line is needed when a milestone-less issue belongs to no kept
+  // prefix group, OR when there are no lines at all yet (empty repo / no
+  // milestones) — every valid map must have at least one line, and the app's
+  // EmptyState renders the zero-station case.
+  const hasBacklog =
+    includedIssues.some(iss => !iss.milestone && !inKeptGroup(iss.number)) ||
+    lines.length === 0;
   let backlogLineId: string | null = null;
   if (hasBacklog) {
     backlogLineId = slugifyId(BACKLOG_LINE_ID, usedLineIds);
@@ -382,7 +486,11 @@ export function githubToMapReport(input: GithubToMapInput): GithubToMapResult {
   // Stable node order (issue order) feeds the deterministic layout.
   const layoutNodes: LayoutNode[] = includedIssues.map(iss => {
     const lineId =
-      (iss.milestone && lineIdByMilestone.get(iss.milestone.title)) || backlogLineId;
+      (iss.milestone && lineIdByMilestone.get(iss.milestone.title)) ||
+      (!iss.milestone && inKeptGroup(iss.number)
+        ? lineIdByGroupKey.get(groupKeyByNumber.get(iss.number)!)
+        : undefined) ||
+      backlogLineId;
     // Defensive: an issue's milestone wasn't in the milestones list — fold it
     // into Backlog so we never produce a dangling line reference.
     const resolvedLineId = lineId ?? ensureBacklog();
@@ -444,9 +552,15 @@ export function githubToMapReport(input: GithubToMapInput): GithubToMapResult {
 
     const due = iss.milestone ? dueByMilestone.get(iss.milestone.title) : null;
 
+    // For a member of a kept prefix group, strip the shared prefix and
+    // capitalize the remainder (it's redundant once the line carries the name).
+    const name = inKeptGroup(iss.number)
+      ? capitalizeFirst(restByNumber.get(iss.number)!)
+      : iss.title;
+
     return {
       id: stationId,
-      name: iss.title,
+      name,
       lines: [lineId],
       col,
       row,

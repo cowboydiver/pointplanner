@@ -46,13 +46,32 @@ unit-tested. The script fetches, via `gh`:
 - A **closed** issue surfaces only when an open issue depends on it — it is rendered
   as a `done` prereq. Closed issues with no open dependent are excluded.
 
-### Milestones → lines
+### Issues → lines
 
-- Each milestone becomes a colored line, in milestone (creation) order.
-- Issues with no milestone land on a single catch-all **`Backlog`** line.
-- An issue whose milestone isn't in the milestones list folds into `Backlog` so the
-  map never has a dangling line reference.
-- One line per station — no interchanges in v1.
+Lines are derived in three tiers, in this order:
+
+1. **Milestones.** Each milestone becomes a colored line, in milestone (creation)
+   order. An issue with a milestone always lands on its milestone line, with its
+   full title — milestones win over any shared prefix.
+2. **Shared title prefixes.** Among issues with *no* milestone, those whose titles
+   share a leading prefix — the text before the first delimiter in the set `:`,
+   `—` (em dash), `–` (en dash), or ` - ` (spaced hyphen; a bare `-` is left alone
+   so `Cloud-backed` isn't split) — are grouped. A prefix shared by **2 or more**
+   such issues becomes a line named **verbatim** by that prefix (the
+   lowest-numbered member's casing; grouping is case-insensitive). These lines
+   come after the milestone
+   lines, ordered by the lowest issue number in each group. **The shared prefix is
+   stripped from each member's station name** (and the remainder's first letter is
+   capitalized), since the line already carries it — e.g. on the
+   `Roadmap generator` line, `"Roadmap generator — agent skill doc"` becomes the
+   station `"Agent skill doc"`.
+3. **`Backlog`.** Any milestone-less issue that joins no prefix group (including a
+   unique delimited prefix — a group of one — which keeps its full title) lands on
+   a single catch-all **`Backlog`** line. An issue whose milestone isn't in the
+   milestones list also folds into `Backlog`, so the map never has a dangling line
+   reference. A map with no lines at all (empty repo) still gets a `Backlog` line.
+
+One line per station — no interchanges in v1.
 
 ### Dependencies → edges
 
