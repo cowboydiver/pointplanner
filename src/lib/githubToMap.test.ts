@@ -502,6 +502,17 @@ describe('githubToMap', () => {
     expect(validateMapData(map2)).toEqual([]);
   });
 
+  it('names a prefix line from the lowest-numbered member, regardless of input order', () => {
+    // Same slug-equal prefix in differing casing; the lower issue number (#2)
+    // sets the displayed casing even though #5 appears first in input order.
+    const map = githubToMap({
+      issues: [open(5, 'auth: sign-out'), open(2, 'Auth: sign-in')],
+      milestones: [],
+    });
+    expect(map.lines.find(l => l.name === 'Auth')).toBeDefined();
+    expect(map.lines.find(l => l.name === 'auth')).toBeUndefined();
+  });
+
   it('splitTitlePrefix returns null without a delimiter or with an empty side', () => {
     expect(splitTitlePrefix('No delimiter here')).toBeNull();
     expect(splitTitlePrefix('Cloud-backed maps')).toBeNull(); // bare hyphen ignored

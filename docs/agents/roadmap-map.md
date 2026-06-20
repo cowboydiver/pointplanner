@@ -57,8 +57,9 @@ Lines are derived in three tiers, in this order:
    share a leading prefix — the text before the first delimiter in the set `:`,
    `—` (em dash), `–` (en dash), or ` - ` (spaced hyphen; a bare `-` is left alone
    so `Cloud-backed` isn't split) — are grouped. A prefix shared by **2 or more**
-   such issues becomes a line named **verbatim** by that prefix (first occurrence's
-   casing; grouping is case-insensitive). These lines come after the milestone
+   such issues becomes a line named **verbatim** by that prefix (the
+   lowest-numbered member's casing; grouping is case-insensitive). These lines
+   come after the milestone
    lines, ordered by the lowest issue number in each group. **The shared prefix is
    stripped from each member's station name** (and the remainder's first letter is
    capitalized), since the line already carries it — e.g. on the

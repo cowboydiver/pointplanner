@@ -281,8 +281,11 @@ function isSignalLabel(name: string): boolean {
  * - One open issue = one station (name ← title). A *closed* issue surfaces as a
  *   station only when an open issue depends on it (rendered as a `done` prereq);
  *   closed issues with no open dependent are excluded.
- * - Each milestone becomes a line (in milestone order); issues with no
- *   milestone land on a single catch-all `Backlog` line.
+ * - Lines are derived in three tiers, in order: each milestone becomes a line
+ *   (in milestone order); then milestone-less issues sharing a delimited title
+ *   prefix (2+ members) form a line named by that prefix, with the prefix
+ *   stripped from each member's station name; everything else lands on a single
+ *   catch-all `Backlog` line.
  * - Issue relationships (native sub-issue / blocked-by links, plus a
  *   `Depends on #N` / `Blocked by #N` body-text fallback) become edges. Each
  *   edge is colored by the downstream (`to`) station's line; `df` is left off
@@ -384,7 +387,13 @@ export function githubToMapReport(input: GithubToMapInput): GithubToMapResult {
     const existing = groupByKey.get(key);
     if (existing) {
       existing.members.push(iss.number);
-      existing.minNumber = Math.min(existing.minNumber, iss.number);
+      // Name uses the lowest-numbered member's casing, so the displayed name is
+      // deterministic (independent of input order) and consistent with the
+      // lowest-issue-number rule that orders the lines.
+      if (iss.number < existing.minNumber) {
+        existing.minNumber = iss.number;
+        existing.name = split.prefix;
+      }
     } else {
       groupByKey.set(key, {
         key,
