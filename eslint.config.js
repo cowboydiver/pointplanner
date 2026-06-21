@@ -6,7 +6,9 @@ import tseslint from 'typescript-eslint'
 import { defineConfig, globalIgnores } from 'eslint/config'
 
 export default defineConfig([
-  globalIgnores(['dist', '.claude/worktrees']),
+  // supabase/functions is Deno code (URL imports, Deno globals) — linted by
+  // `deno lint`, not the app's browser-oriented ESLint config.
+  globalIgnores(['dist', '.claude/worktrees', 'supabase/functions']),
   {
     files: ['**/*.{ts,tsx}'],
     extends: [

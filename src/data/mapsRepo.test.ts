@@ -18,11 +18,13 @@ function makeBuilder(result: { data: unknown; error: unknown }) {
 
 const fromMock = vi.fn();
 const getUserMock = vi.fn();
+const invokeMock = vi.fn();
 
 vi.mock('./supabase', () => ({
   supabase: {
     from: (...args: unknown[]) => fromMock(...args),
     auth: { getUser: (...args: unknown[]) => getUserMock(...args) },
+    functions: { invoke: (...args: unknown[]) => invokeMock(...args) },
   },
 }));
 
@@ -36,6 +38,8 @@ import {
   addShare,
   removeShare,
   getMapSource,
+  listConnectableRepos,
+  connectRepo,
 } from './mapsRepo';
 import { createBlankMapData } from '../lib/maps';
 
@@ -57,6 +61,7 @@ function routeFrom(builders: Record<string, ReturnType<typeof makeBuilder>>) {
 beforeEach(() => {
   fromMock.mockReset();
   getUserMock.mockReset();
+  invokeMock.mockReset();
   signInAs('me', 'me@example.com');
 });
 
@@ -335,5 +340,37 @@ describe('getMapSource', () => {
   it('returns null for a non-mirror map (no sources row)', async () => {
     fromMock.mockReturnValue(makeBuilder({ data: null, error: null }));
     expect(await getMapSource('plain')).toBeNull();
+  });
+});
+
+describe('GitHub mirror', () => {
+  it('listConnectableRepos returns the function payload', async () => {
+    const payload = {
+      connected: true,
+      repos: [{ installationId: 1, repoId: 2, owner: 'o', name: 'r', fullName: 'o/r', private: true }],
+    };
+    invokeMock.mockResolvedValue({ data: payload, error: null });
+    const result = await listConnectableRepos();
+    expect(result).toEqual(payload);
+    expect(invokeMock).toHaveBeenCalledWith('github-repos', { body: {} });
+  });
+
+  it('listConnectableRepos throws on a function error', async () => {
+    invokeMock.mockResolvedValue({ data: null, error: { message: 'boom' } });
+    await expect(listConnectableRepos()).rejects.toBeTruthy();
+  });
+
+  it('connectRepo forwards params and returns the new map meta', async () => {
+    invokeMock.mockResolvedValue({ data: { map: { id: 'm9', name: 'o/r' } }, error: null });
+    const meta = await connectRepo({ installationId: 1, repoId: 2, filter: 'ready' });
+    expect(meta).toEqual({ id: 'm9', name: 'o/r' });
+    expect(invokeMock).toHaveBeenCalledWith('connect-repo', {
+      body: { installationId: 1, repoId: 2, filter: 'ready' },
+    });
+  });
+
+  it('connectRepo throws on a function error', async () => {
+    invokeMock.mockResolvedValue({ data: null, error: { message: 'repo_not_accessible' } });
+    await expect(connectRepo({ installationId: 1, repoId: 2 })).rejects.toBeTruthy();
   });
 });

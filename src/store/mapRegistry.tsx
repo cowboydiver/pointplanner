@@ -30,6 +30,10 @@ interface MapRegistryContextValue {
   // Import a map parsed from a generated `maps/*.json` file (roadmap-map skill)
   // as a new owned map, made active.
   importMap: (name: string, data: MapData) => void;
+  // Connect a GitHub repo as a new read-only mirror map, made active. Resolves
+  // when the mirror exists and its first sync has run; rejects on failure so the
+  // modal can surface the error.
+  connectRepo: (params: { installationId: number; repoId: number; filter?: string | null }) => Promise<void>;
   selectMap: (id: string) => void;
   renameMapById: (id: string, name: string) => void;
   deleteMapById: (id: string) => void;
@@ -98,6 +102,16 @@ export function MapRegistryProvider({ children }: { children: React.ReactNode })
 
   function importMap(name: string, data: MapData): void {
     addOwnedMap(name, data, 'Failed to import map');
+  }
+
+  async function connectRepo(params: {
+    installationId: number;
+    repoId: number;
+    filter?: string | null;
+  }): Promise<void> {
+    const meta = await repo.connectRepo(params);
+    const item: MapListItem = { ...meta, role: 'owner', isMirror: true };
+    setIndex(prev => ({ activeMapId: item.id, maps: [item, ...prev.maps] }));
   }
 
   function selectMap(id: string): void {
@@ -191,6 +205,7 @@ export function MapRegistryProvider({ children }: { children: React.ReactNode })
     refreshMaps,
     createMap,
     importMap,
+    connectRepo,
     selectMap,
     renameMapById,
     deleteMapById,

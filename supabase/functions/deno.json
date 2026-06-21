@@ -1,0 +1,7 @@
+{
+  "//": "Deno config for the Supabase Edge Functions. The sync function reuses the pure transform in src/lib/*, whose internal imports are extensionless; `sloppy-imports` lets the Deno/Supabase bundler resolve them. See docs/github-app-setup.md.",
+  "unstable": ["sloppy-imports"],
+  "imports": {
+    "@supabase/supabase-js": "https://esm.sh/@supabase/supabase-js@2.45.4"
+  }
+}

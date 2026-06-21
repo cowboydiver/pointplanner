@@ -31,6 +31,23 @@ export interface MapRecord {
   isMirror: boolean;
 }
 
+/** A repo the signed-in user can mirror, returned by the github-repos function. */
+export interface ConnectableRepo {
+  installationId: number;
+  repoId: number;
+  owner: string;
+  name: string;
+  fullName: string;
+  private: boolean;
+}
+
+/** Result of listing connectable repos: `connected` is false until the user has
+ * authorized the GitHub App (the caller then kicks off the authorize redirect). */
+export interface ConnectableReposResult {
+  connected: boolean;
+  repos: ConnectableRepo[];
+}
+
 /** Origin + last-sync status of a mirror map (migration 0006), owner-only. */
 export interface MapSource {
   provider: string;
@@ -210,6 +227,54 @@ export async function saveMap(
   if (error) return { ok: false, reason: 'error', message: error.message };
   if (!rows || (rows as unknown[]).length === 0) return { ok: false, reason: 'stale' };
   return { ok: true, version: nextVersion };
+}
+
+// --- GitHub mirror (connect-a-repo) -----------------------------------------
+// These go through Supabase Edge Functions (service-role GitHub access lives
+// server-side; the browser never sees an installation token). The functions are
+// documented in docs/github-app-setup.md.
+
+/**
+ * Begin the GitHub App user-authorization redirect. Sends the user to GitHub to
+ * grant the App access; GitHub returns them to the `github-oauth-callback`
+ * function (which stores their token and redirects back here). The current
+ * Supabase access token rides in `state` so the callback knows which user to
+ * bind the GitHub token to.
+ */
+export async function startGithubAuthorize(): Promise<void> {
+  const clientId = import.meta.env.VITE_GITHUB_CLIENT_ID;
+  const callbackUrl = import.meta.env.VITE_GITHUB_CALLBACK_URL;
+  if (!clientId || !callbackUrl) {
+    throw new Error('GitHub App is not configured (VITE_GITHUB_CLIENT_ID / VITE_GITHUB_CALLBACK_URL).');
+  }
+  const { data } = await supabase.auth.getSession();
+  const state = data.session?.access_token ?? '';
+  const url =
+    `https://github.com/login/oauth/authorize?client_id=${encodeURIComponent(clientId)}` +
+    `&redirect_uri=${encodeURIComponent(callbackUrl)}&state=${encodeURIComponent(state)}`;
+  window.location.href = url;
+}
+
+/** List the repos the signed-in user can mirror (github-repos function). */
+export async function listConnectableRepos(): Promise<ConnectableReposResult> {
+  const { data, error } = await supabase.functions.invoke('github-repos', { body: {} });
+  if (error) throw error;
+  return data as ConnectableReposResult;
+}
+
+/**
+ * Create a read-only mirror map from a repo the user can access (connect-repo
+ * function). Returns the new map's meta; the registry then adds it as an
+ * owned, mirror item and makes it active.
+ */
+export async function connectRepo(params: {
+  installationId: number;
+  repoId: number;
+  filter?: string | null;
+}): Promise<MapMeta> {
+  const { data, error } = await supabase.functions.invoke('connect-repo', { body: params });
+  if (error) throw error;
+  return (data as { map: MapMeta }).map;
 }
 
 // --- Sharing (issue #19) ----------------------------------------------------
