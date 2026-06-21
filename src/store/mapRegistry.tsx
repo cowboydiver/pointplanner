@@ -56,7 +56,7 @@ export function MapRegistryProvider({ children }: { children: React.ReactNode })
         const { needsSeed } = chooseInitialMap(maps);
         if (needsSeed) {
           const meta = await repo.createMap(SEED_NAME, createSeedMapData());
-          maps = [{ ...meta, role: 'owner' }];
+          maps = [{ ...meta, role: 'owner', isMirror: false }];
         }
         if (!active) return;
         const { activeMapId } = chooseInitialMap(maps);
@@ -84,7 +84,7 @@ export function MapRegistryProvider({ children }: { children: React.ReactNode })
     void (async () => {
       try {
         const meta = await repo.createMap(name, data);
-        const item: MapListItem = { ...meta, role: 'owner' };
+        const item: MapListItem = { ...meta, role: 'owner', isMirror: false };
         setIndex(prev => ({ activeMapId: item.id, maps: [item, ...prev.maps] }));
       } catch (err) {
         console.error(context, err);
@@ -146,7 +146,7 @@ export function MapRegistryProvider({ children }: { children: React.ReactNode })
     void (async () => {
       try {
         const meta = await repo.duplicateMap(id);
-        const item: MapListItem = { ...meta, role: 'owner' };
+        const item: MapListItem = { ...meta, role: 'owner', isMirror: false };
         setIndex(prev => {
           const idx = prev.maps.findIndex(m => m.id === id);
           const insertAt = idx === -1 ? prev.maps.length : idx + 1;

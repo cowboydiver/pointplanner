@@ -151,6 +151,7 @@ export function MapSwitcher() {
                 >
                   {isActive && <span className="map-menu-check" aria-hidden="true">✓</span>}
                   <span className="map-menu-item-label">{m.name}</span>
+                  {m.isMirror && <span className="map-menu-shared-badge">Repo</span>}
                   {!isOwned && <span className="map-menu-shared-badge">Shared</span>}
                 </button>
                 {isOwned && (

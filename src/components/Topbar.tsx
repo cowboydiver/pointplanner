@@ -6,7 +6,7 @@ import { MapSwitcher } from './MapSwitcher';
 import { ShareModal } from './ShareModal';
 
 export function Topbar() {
-  const { state, dispatch, readOnly } = useStore();
+  const { state, dispatch, readOnly, isMirror } = useStore();
   const { signOut } = useAuth();
   const { activeMeta } = useMapRegistry();
   const [shareOpen, setShareOpen] = useState(false);
@@ -20,7 +20,9 @@ export function Topbar() {
         PointPlanner
       </div>
       <MapSwitcher />
-      {readOnly && <span className="pill">Viewer (read-only)</span>}
+      {readOnly && (
+        <span className="pill">{isMirror ? 'Repo mirror (read-only)' : 'Viewer (read-only)'}</span>
+      )}
       <div className="spacer" />
       <button className="tb-btn" type="button">
         Board view

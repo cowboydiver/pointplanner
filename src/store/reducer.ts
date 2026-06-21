@@ -4,12 +4,23 @@ import { recompute } from '../lib/dependencies';
 import { slugify, placeNewStation } from '../lib/placement';
 import { lineIdFromName, normalizeShort } from '../lib/lines';
 import { PLACEHOLDER_DESC, PLACEHOLDER_OWNER, PLACEHOLDER_DASH } from '../lib/placeholders';
+import type { MapRole } from '../data/mapsRepo';
 
 export interface PersistedState {
   project: Project;
   lines: Line[];
   stations: Station[];
   edges: Edge[];
+}
+
+/**
+ * A store is read-only when the caller is a Viewer share OR the map is a GitHub
+ * mirror (read-only for everyone, owner included — migration 0006). A read-only
+ * store drops mutating actions, never autosaves, and instead applies live server
+ * updates via SET_DATA. Owner/Editor of a non-mirror map remain editable.
+ */
+export function resolveReadOnly(role: MapRole, isMirror: boolean): boolean {
+  return role === 'viewer' || isMirror;
 }
 
 export interface StoreState extends PersistedState {
@@ -27,6 +38,7 @@ export type Action =
   | { type: 'OPEN_DETAIL'; id: string }
   | { type: 'CLOSE_DETAIL' }
   | { type: 'DO_ACTION'; id: string; act: 'start' | 'done' | 'reopen' }
+  | { type: 'SET_DATA'; data: PersistedState }
   | { type: 'SET_HIGHLIGHT_LINE'; lineId: string | null }
   | { type: 'CREATE_TASK'; data: CreateTaskData }
   | { type: 'UPDATE_TASK'; id: string; data: EditTaskData }
@@ -125,6 +137,31 @@ export function reducer(state: StoreState, action: Action): StoreState {
       const idx = buildIndexes(updated, state.lines, state.edges);
       const recomputed = recompute(updated, idx.prereqs);
       return { ...state, stations: recomputed };
+    }
+
+    case 'SET_DATA': {
+      // Replace the whole persisted blob in place — used when a read-only store
+      // (mirror / Viewer) receives a live server update over Realtime. The
+      // payload is already settled server-side, so we don't recompute; we just
+      // keep the current selection/highlight when they still resolve.
+      const { data } = action;
+      const selectedId =
+        state.selectedId && data.stations.some(s => s.id === state.selectedId)
+          ? state.selectedId
+          : null;
+      const highlightLine =
+        state.highlightLine && data.lines.some(l => l.id === state.highlightLine)
+          ? state.highlightLine
+          : null;
+      return {
+        ...state,
+        project: data.project,
+        lines: data.lines,
+        stations: data.stations,
+        edges: data.edges,
+        selectedId,
+        highlightLine,
+      };
     }
 
     case 'SET_HIGHLIGHT_LINE':
