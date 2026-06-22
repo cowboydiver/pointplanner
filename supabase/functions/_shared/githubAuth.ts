@@ -10,7 +10,7 @@
 
 const GH_API = 'https://api.github.com';
 
-function base64url(input: ArrayBuffer | string): string {
+export function base64url(input: ArrayBuffer | string): string {
   const bytes = typeof input === 'string' ? new TextEncoder().encode(input) : new Uint8Array(input);
   let bin = '';
   for (const b of bytes) bin += String.fromCharCode(b);
@@ -18,7 +18,7 @@ function base64url(input: ArrayBuffer | string): string {
 }
 
 /** Decode a PKCS#8 PEM into the DER bytes Web Crypto's importKey expects. */
-function pemToPkcs8(pem: string): ArrayBuffer {
+export function pemToPkcs8(pem: string): ArrayBuffer {
   const body = pem
     .replace(/-----BEGIN [^-]+-----/, '')
     .replace(/-----END [^-]+-----/, '')

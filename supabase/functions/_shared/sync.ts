@@ -111,6 +111,17 @@ export async function createMirror(
     throw new Error(`create map_source failed: ${srcErr.message}`);
   }
 
-  await syncMap(admin, config, map.id);
+  try {
+    await syncMap(admin, config, map.id);
+  } catch (err) {
+    // The initial sync failed (bad token, GitHub fetch error, etc.). connect-repo
+    // is meant to be atomic, so roll back BOTH rows rather than leaving the user
+    // an empty mirror map that surfaces on their next listMaps() and could be
+    // populated by a later webhook. syncMap already recorded the error status,
+    // but the rows are about to be deleted, so that's moot.
+    await admin.from('map_sources').delete().eq('map_id', map.id);
+    await admin.from('maps').delete().eq('id', map.id);
+    throw err;
+  }
   return map;
 }

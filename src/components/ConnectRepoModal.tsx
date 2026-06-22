@@ -29,27 +29,41 @@ export function ConnectRepoModal({ onClose }: ConnectRepoModalProps) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    let active = true;
-    (async () => {
-      try {
-        const result = await listConnectableRepos();
-        if (!active) return;
-        setConnected(result.connected);
-        setRepos(result.repos);
-        if (result.repos.length > 0) setSelected(String(result.repos[0].repoId));
-      } catch (err) {
-        if (!active) return;
-        console.error('Failed to list repos', err);
-        setError('Could not reach GitHub. Check the App configuration and try again.');
-      } finally {
-        if (active) setLoading(false);
-      }
-    })();
-    return () => {
-      active = false;
-    };
+  // Fetch the user's connectable repos. The network call is awaited before any
+  // setState, so this is safe to invoke directly from the mount effect (no
+  // synchronous state update in the effect body).
+  const loadRepos = useCallback(async () => {
+    try {
+      const result = await listConnectableRepos();
+      setConnected(result.connected);
+      setRepos(result.repos);
+      if (result.repos.length > 0) setSelected(String(result.repos[0].repoId));
+      // Connected but the repo fetch failed transiently — surface a retry rather
+      // than sending the user back through authorize.
+      setError(
+        result.error ? 'Could not load your repositories — GitHub may be busy. Try again.' : null,
+      );
+    } catch (err) {
+      console.error('Failed to list repos', err);
+      setError('Could not reach GitHub. Check the App configuration and try again.');
+    } finally {
+      setLoading(false);
+    }
   }, []);
+
+  useEffect(() => {
+    // Wrapped in an async IIFE so the (post-await) setState calls inside
+    // loadRepos run in an async callback, not synchronously in the effect body.
+    void (async () => {
+      await loadRepos();
+    })();
+  }, [loadRepos]);
+
+  const handleRetry = useCallback(() => {
+    setError(null);
+    setLoading(true);
+    void loadRepos();
+  }, [loadRepos]);
 
   const handleAuthorize = useCallback(async () => {
     setBusy(true);
@@ -123,9 +137,22 @@ export function ConnectRepoModal({ onClose }: ConnectRepoModalProps) {
             </button>
           </div>
         ) : repos.length === 0 ? (
-          <div className="p-none">
-            No repositories available. Install the GitHub App on a repo, then try again.
-          </div>
+          error ? (
+            <div className="field">
+              <button
+                className="btn-primary"
+                type="button"
+                disabled={busy}
+                onClick={handleRetry}
+              >
+                Try again
+              </button>
+            </div>
+          ) : (
+            <div className="p-none">
+              No repositories available. Install the GitHub App on a repo, then try again.
+            </div>
+          )
         ) : (
           <>
             <label>

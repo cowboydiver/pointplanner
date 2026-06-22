@@ -42,10 +42,13 @@ export interface ConnectableRepo {
 }
 
 /** Result of listing connectable repos: `connected` is false until the user has
- * authorized the GitHub App (the caller then kicks off the authorize redirect). */
+ * authorized the GitHub App (the caller then kicks off the authorize redirect).
+ * `error` is set when the user IS connected but the repo fetch failed transiently
+ * (e.g. a GitHub 5xx/rate-limit) — the caller should offer a retry, not re-auth. */
 export interface ConnectableReposResult {
   connected: boolean;
   repos: ConnectableRepo[];
+  error?: string;
 }
 
 /** Origin + last-sync status of a mirror map (migration 0006), owner-only. */

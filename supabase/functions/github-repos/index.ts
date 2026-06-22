@@ -30,8 +30,16 @@ Deno.serve(async (req: Request) => {
     const repos = await listUserRepos(tok.access_token);
     return json({ connected: true, repos });
   } catch (err) {
-    // A revoked/expired token reads as "not connected" so the SPA re-authorizes.
+    const message = err instanceof Error ? err.message : String(err);
+    // Only a 401 (bad/revoked/expired credential) should bounce the user back
+    // through the authorize redirect — re-authing won't fix a transient 5xx,
+    // rate-limit, or network blip, and would trap them in an authorize loop. For
+    // those, stay "connected" and surface a retryable error so the SPA can offer
+    // "couldn't load repos, try again" instead.
     console.error('github-repos failed:', err);
-    return json({ connected: false, repos: [] });
+    if (/\b401\b/.test(message)) {
+      return json({ connected: false, repos: [] });
+    }
+    return json({ connected: true, repos: [], error: 'fetch_failed' });
   }
 });

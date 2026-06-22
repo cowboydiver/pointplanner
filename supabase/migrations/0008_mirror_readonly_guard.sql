@@ -11,6 +11,15 @@
 -- role (`auth.role() = 'service_role'`), which is how the Edge Functions write.
 -- Owners may still rename / delete / share the mirror container — only the synced
 -- payload is frozen — so updates that leave `data` and `version` untouched pass.
+--
+-- SECURITY: this is the ONLY server-side guard on a mirror's payload — the
+-- `maps_update_owner` RLS policy still lets an owner UPDATE their own row, so the
+-- whole boundary rests on `auth.role()`. That is sound on Supabase: the role is
+-- read from the verified JWT (`authenticated` for a signed-in user; `service_role`
+-- only for the service key, which never reaches the browser), so a client cannot
+-- spoof it. Verify manually per docs/github-app-setup.md step 6.3 — an automated
+-- assertion would need a live Postgres + JWT harness this repo's vitest suite
+-- doesn't have.
 
 create or replace function private.reject_mirror_client_write()
   returns trigger language plpgsql security definer set search_path = public as $$
