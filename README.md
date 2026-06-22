@@ -8,7 +8,7 @@ Built with **Vite + React + TypeScript**. State persists to `localStorage`.
 
 ## Features
 
-- **Transit map** — SVG routes with rounded corners and white casing at crossings; stations show four states (locked / available / active / done) with animated halos for active and ready tasks.
+- **Transit map** — SVG routes with rounded corners; stations show four states (locked / available / active / done) with animated halos for active and ready tasks.
 - **Interchanges** — a task on more than one line is drawn larger with a dark ring.
 - **Legend** — overall progress, per-line stop/done counts with mini progress bars, and click-to-highlight a single line.
 - **Detail panel** — slide-in panel with status, owner, due date, estimate, "Depends on" / "Unblocks next" lists, and Start / Complete / Reopen actions that cascade through the dependency graph.

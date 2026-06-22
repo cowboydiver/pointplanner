@@ -217,6 +217,22 @@ describe('SET_DATA', () => {
   });
 });
 
+describe('SET_LABEL_ANGLE', () => {
+  it('stores the map-wide label angle on the project', () => {
+    const next = reducer(makeState(), { type: 'SET_LABEL_ANGLE', angle: 45 });
+    expect(next.project.labelAngle).toBe(45);
+    // Other project fields are preserved.
+    expect(next.project.name).toBe('P');
+    expect(next.project.subtitle).toBe('S');
+  });
+
+  it('can reset the angle back to 0', () => {
+    const rotated = reducer(makeState(), { type: 'SET_LABEL_ANGLE', angle: 45 });
+    const reset = reducer(rotated, { type: 'SET_LABEL_ANGLE', angle: 0 });
+    expect(reset.project.labelAngle).toBe(0);
+  });
+});
+
 describe('resolveReadOnly', () => {
   it('is true for a Viewer share regardless of mirror flag', () => {
     expect(resolveReadOnly('viewer', false)).toBe(true);

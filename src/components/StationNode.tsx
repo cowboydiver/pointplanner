@@ -1,12 +1,17 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { Station, Line, LabelPlacement } from '../types';
 import { px, py } from '../lib/routing';
+import { wrapLabel } from '../lib/labelWrap';
+
+const LINE_HEIGHT = 15; // px between wrapped label lines (font-size 13)
 
 interface StationNodeProps {
   station: Station;
   primaryLine: Line;
   isSelected: boolean;
   isDim: boolean;
+  /** Map-wide label rotation in degrees (subway style); 0 = horizontal. */
+  labelAngle?: number;
   onSelect: (id: string) => void;
 }
 
@@ -24,11 +29,21 @@ function getLabelProps(lp: LabelPlacement) {
   }
 }
 
-export function StationNode({ station, primaryLine, isSelected, isDim, onSelect }: StationNodeProps) {
+export function StationNode({ station, primaryLine, isSelected, isDim, labelAngle = 0, onSelect }: StationNodeProps) {
   const isInterchange = station.lines.length > 1;
   const cx = px(station.col);
   const cy = py(station.row);
   const labelProps = getLabelProps(station.lp);
+
+  // Wrap long names to <=2 lines. Vertical anchoring depends on placement: a
+  // top label grows upward (away from the marker), left/right centers around the
+  // anchor, everything else grows downward from the base y.
+  const labelLines = wrapLabel(station.name);
+  const lineCount = labelLines.length;
+  let firstLineY = labelProps.y;
+  if (station.lp === 'top') firstLineY = labelProps.y - (lineCount - 1) * LINE_HEIGHT;
+  else if (station.lp === 'left' || station.lp === 'right')
+    firstLineY = labelProps.y - ((lineCount - 1) * LINE_HEIGHT) / 2;
 
   const [justChanged, setJustChanged] = useState(false);
 
@@ -80,15 +95,21 @@ export function StationNode({ station, primaryLine, isSelected, isDim, onSelect 
       <circle className="marker" r={isInterchange ? 13 : 11} cx={0} cy={0} />
       <path className="check" d="M -4.2 0.4 L -1.2 3.4 L 4.6 -3.2" />
       <circle className="active-dot" r={4.4} cx={0} cy={0} />
-      <text
-        className="label"
-        x={labelProps.x}
-        y={labelProps.y}
-        textAnchor={labelProps.textAnchor}
-        dominantBaseline={labelProps.dominantBaseline}
-      >
-        {station.name}
-      </text>
+      <g transform={labelAngle ? `rotate(${labelAngle})` : undefined}>
+        <text
+          className="label"
+          x={labelProps.x}
+          y={firstLineY}
+          textAnchor={labelProps.textAnchor}
+          dominantBaseline={labelProps.dominantBaseline}
+        >
+          {labelLines.map((line, i) => (
+            <tspan key={i} x={labelProps.x} dy={i === 0 ? 0 : LINE_HEIGHT}>
+              {line}
+            </tspan>
+          ))}
+        </text>
+      </g>
     </g>
   );
 }

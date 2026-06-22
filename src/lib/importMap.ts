@@ -110,8 +110,17 @@ function normalize(value: Record<string, unknown>): MapData {
     return edge;
   });
 
+  const projectOut: MapData['project'] = {
+    name: asString(project.name),
+    subtitle: asString(project.subtitle),
+  };
+  // Preserve a valid map-wide label rotation; drop anything non-finite.
+  if (typeof project.labelAngle === 'number' && Number.isFinite(project.labelAngle)) {
+    projectOut.labelAngle = project.labelAngle;
+  }
+
   return {
-    project: { name: asString(project.name), subtitle: asString(project.subtitle) },
+    project: projectOut,
     lines,
     stations,
     edges,

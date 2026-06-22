@@ -183,9 +183,8 @@ body[data-theme="dark"] .map-ctrl:hover { background: #232732; }
 
 /* segments */
 .seg { stroke-width: var(--line-w); stroke-linecap: round; stroke-linejoin: round; transition: opacity .3s, stroke-width .2s; }
-.seg-casing { stroke: var(--paper); stroke-width: calc(var(--line-w) + 6px); stroke-linecap: round; stroke-linejoin: round; }
 .seg.upcoming { opacity: .28; }
-.seg.dim, .seg-casing.dim { opacity: .07 !important; }
+.seg.dim { opacity: .07 !important; }
 
 /* stations */
 .station { cursor: pointer; --c: #888; transition: opacity .25s; }

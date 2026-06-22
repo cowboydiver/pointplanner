@@ -112,12 +112,43 @@ interface GqlIssueNode {
 }
 
 /**
- * Native sub-issue relationships via GraphQL — the `fetchRelationships` query
- * from the generator, ported to `fetch`. Best-effort: a GraphQL error (e.g. the
- * field is unavailable) returns the relationships gathered so far, leaving the
+ * Native "blocked by" issue dependencies (REST), one call per issue, flattened
+ * to `{ prereq, dependent }` pairs — the blocking issue is the prereq, the issue
+ * it blocks is the dependent. Mirrors `fetchBlockedBy` in scripts/generate-map.ts.
+ * Best-effort: the first failure (endpoint unavailable) stops probing and returns
+ * what we have, leaving sub-issues + body-text to supply edges.
+ */
+async function fetchBlockedBy(
+  fetchImpl: FetchLike,
+  token: string,
+  owner: string,
+  repo: string,
+  numbers: number[],
+): Promise<GitHubRelationship[]> {
+  const rels: GitHubRelationship[] = [];
+  for (const n of numbers) {
+    let blockers: { number: number }[];
+    try {
+      blockers = await ghJson<{ number: number }[]>(
+        fetchImpl,
+        token,
+        `/repos/${owner}/${repo}/issues/${n}/dependencies/blocked_by`,
+      );
+    } catch {
+      return rels; // endpoint unsupported — stop after the first failure
+    }
+    for (const b of blockers ?? []) rels.push({ prereq: b.number, dependent: n });
+  }
+  return rels;
+}
+
+/**
+ * Native sub-issue relationships via GraphQL — the `fetchSubIssues` query from
+ * the generator, ported to `fetch`. Best-effort: a GraphQL error (e.g. the field
+ * is unavailable) returns the relationships gathered so far, leaving the
  * transform's `Depends on #N` body-text fallback to fill in.
  */
-async function fetchRelationships(fetchImpl: FetchLike, token: string, owner: string, repo: string): Promise<GitHubRelationship[]> {
+async function fetchSubIssues(fetchImpl: FetchLike, token: string, owner: string, repo: string): Promise<GitHubRelationship[]> {
   const query = `
     query($owner: String!, $name: String!, $cursor: String) {
       repository(owner: $owner, name: $name) {
@@ -166,11 +197,13 @@ export async function fetchRepoInput(
   repo: string,
   fetchImpl: FetchLike = fetch,
 ): Promise<GithubToMapInput> {
-  const [issues, milestones, repoInfo, relationships] = await Promise.all([
+  const [issues, milestones, repoInfo, subIssues] = await Promise.all([
     fetchIssues(fetchImpl, token, owner, repo),
     fetchMilestones(fetchImpl, token, owner, repo),
     fetchRepoInfo(fetchImpl, token, owner, repo),
-    fetchRelationships(fetchImpl, token, owner, repo),
+    fetchSubIssues(fetchImpl, token, owner, repo),
   ]);
-  return { issues, milestones, repo: repoInfo, relationships };
+  // Native blocked-by needs the issue numbers, so it runs after the issue fetch.
+  const blockedBy = await fetchBlockedBy(fetchImpl, token, owner, repo, issues.map(i => i.number));
+  return { issues, milestones, repo: repoInfo, relationships: [...subIssues, ...blockedBy] };
 }

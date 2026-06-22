@@ -5,6 +5,7 @@ import {
   scopeInputByFilter,
   slugify,
   splitTitlePrefix,
+  stripSharedPrefixes,
   type GitHubIssue,
   type GitHubMilestone,
   type GitHubRelationship,
@@ -521,5 +522,55 @@ describe('githubToMap', () => {
       prefix: 'Roadmap generator',
       rest: 'agent skill doc',
     });
+  });
+});
+
+describe('stripSharedPrefixes', () => {
+  it('collapses leading whole words shared by 2+ names into a tag', () => {
+    const out = stripSharedPrefixes([
+      'Map generation routing',
+      'Map generation labels',
+      'Something else',
+    ]);
+    expect(out[0]).toEqual({ name: 'Routing', tag: 'Map generation' });
+    expect(out[1]).toEqual({ name: 'Labels', tag: 'Map generation' });
+    // Unshared name is untouched.
+    expect(out[2]).toEqual({ name: 'Something else', tag: null });
+  });
+
+  it('prefers the longest shared leading prefix', () => {
+    const out = stripSharedPrefixes(['Map gen fix routing', 'Map gen fix labels']);
+    expect(out[0]).toEqual({ name: 'Routing', tag: 'Map gen fix' });
+    expect(out[1]).toEqual({ name: 'Labels', tag: 'Map gen fix' });
+  });
+
+  it('matches case-insensitively but keeps each name verbatim in its tag', () => {
+    const out = stripSharedPrefixes(['Auth login', 'auth logout']);
+    expect(out[0]).toEqual({ name: 'Login', tag: 'Auth' });
+    expect(out[1]).toEqual({ name: 'Logout', tag: 'auth' });
+  });
+
+  it('never strips the whole name (always leaves a remainder)', () => {
+    const out = stripSharedPrefixes(['Deploy', 'Deploy']);
+    expect(out[0]).toEqual({ name: 'Deploy', tag: null });
+  });
+});
+
+describe('githubToMap shared-prefix tags', () => {
+  it('surfaces a shared leading prefix as a tag and shortens the station name', () => {
+    const input = {
+      issues: [
+        { number: 1, title: 'Search bar empty state', state: 'open' },
+        { number: 2, title: 'Search bar focus ring', state: 'open' },
+      ] as GitHubIssue[],
+      milestones: [] as GitHubMilestone[],
+    };
+    const map = githubToMap(input);
+    const s1 = map.stations.find(s => s.id === 'issue-1')!;
+    const s2 = map.stations.find(s => s.id === 'issue-2')!;
+    expect(s1.name).toBe('Empty state');
+    expect(s2.name).toBe('Focus ring');
+    expect(s1.tags).toContain('Search bar');
+    expect(s2.tags).toContain('Search bar');
   });
 });

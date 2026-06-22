@@ -74,6 +74,7 @@ export function TransitMap() {
                 primaryLine={primaryLine}
                 isSelected={selectedId === station.id}
                 isDim={isDim}
+                labelAngle={state.project.labelAngle ?? 0}
                 onSelect={handleSelect}
               />
             );

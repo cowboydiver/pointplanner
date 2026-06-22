@@ -23,6 +23,7 @@ const MUTATING_ACTIONS = new Set<Action['type']>([
   'CREATE_LINE',
   'UPDATE_LINE',
   'DELETE_LINE',
+  'SET_LABEL_ANGLE',
 ]);
 
 interface StoreContextValue {

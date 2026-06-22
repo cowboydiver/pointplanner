@@ -79,21 +79,17 @@ interface GqlIssueNode {
   number: number;
   // Children (sub-issues) of this issue: each child must finish before parent.
   subIssues: { nodes: { number: number }[] };
-  // Issues that block this one (this issue depends on them).
-  blockedBy?: { nodes: { number: number }[] } | null;
 }
 
 /**
- * Fetch native relationships (sub-issue parent/child + `blocked by`) via the
- * GraphQL API and flatten them into plain `{ prereq, dependent }` pairs.
+ * Fetch native sub-issue parent/child links via the GraphQL API and flatten them
+ * into plain `{ prereq, dependent }` pairs (child = prereq, parent = dependent,
+ * so a parent can't close until its children do).
  *
- * - Sub-issue: child is the prereq, parent is the dependent.
- * - blockedBy: the blocking issue is the prereq, this issue is the dependent.
- *
- * The `timelineItems` BLOCKED_BY traversal is best-effort — if the schema field
- * is unavailable on this host the query falls back to sub-issues only.
+ * Best-effort — if the `subIssues` field is unavailable on this host the query
+ * bails and the body-text fallback in the transform still supplies edges.
  */
-function fetchRelationships(coords: RepoCoords): GitHubRelationship[] {
+function fetchSubIssues(coords: RepoCoords): GitHubRelationship[] {
   const query = `
     query($owner: String!, $name: String!, $cursor: String) {
       repository(owner: $owner, name: $name) {
@@ -131,7 +127,7 @@ function fetchRelationships(coords: RepoCoords): GitHubRelationship[] {
       // Native relationship querying is best-effort; the body-text fallback in
       // the transform still supplies edges. Warn and bail out of native links.
       console.warn(
-        'Native relationship query failed; relying on body-text fallback.',
+        'Sub-issue query failed; relying on body-text fallback.',
         err instanceof Error ? err.message : err,
       );
       return rels;
@@ -152,12 +148,45 @@ function fetchRelationships(coords: RepoCoords): GitHubRelationship[] {
       for (const child of node.subIssues?.nodes ?? []) {
         rels.push({ prereq: child.number, dependent: node.number });
       }
-      for (const blocker of node.blockedBy?.nodes ?? []) {
-        rels.push({ prereq: blocker.number, dependent: node.number });
-      }
     }
     if (!page.pageInfo.hasNextPage) break;
     cursor = page.pageInfo.endCursor;
+  }
+  return rels;
+}
+
+/**
+ * Fetch native "blocked by" issue dependencies (GitHub's Issue Dependencies
+ * feature) per issue via the REST API, flattened to `{ prereq, dependent }`
+ * pairs — the blocking issue is the prereq, the issue it blocks is the dependent.
+ *
+ * The previous GraphQL attempt never actually requested this data (the field was
+ * declared but omitted from the query), so native blocked-by links were silently
+ * dropped and many issues came out isolated. We use the REST dependencies
+ * endpoint instead, one call per issue. Best-effort: if the endpoint is
+ * unavailable (older GitHub host / feature off), the FIRST failure warns once and
+ * we stop, leaving sub-issues + body-text to supply edges.
+ */
+function fetchBlockedBy(numbers: number[]): GitHubRelationship[] {
+  const rels: GitHubRelationship[] = [];
+  for (const n of numbers) {
+    let out: string;
+    try {
+      out = gh([
+        'api',
+        `repos/{owner}/{repo}/issues/${n}/dependencies/blocked_by`,
+        '--jq',
+        '[.[] | .number]',
+      ]);
+    } catch (err) {
+      console.warn(
+        'Native "blocked by" query unavailable; relying on sub-issues + body-text fallback.',
+        err instanceof Error ? err.message : err,
+      );
+      return rels; // endpoint unsupported — stop probing after the first failure
+    }
+    const blockers = JSON.parse(out) as number[];
+    for (const b of blockers) rels.push({ prereq: b, dependent: n });
   }
   return rels;
 }
@@ -196,7 +225,14 @@ function main(): void {
   const issues = fetchIssues();
   const milestones = fetchMilestones();
   const repo = fetchRepoInfo();
-  const relationships = fetchRelationships(fetchRepoCoords());
+  const coords = fetchRepoCoords();
+  // Native relationships from two sources: sub-issues (GraphQL) + "blocked by"
+  // dependencies (REST). The transform dedupes and breaks cycles across both,
+  // plus the `Blocked by/Depends on #N` body-text fallback.
+  const relationships = [
+    ...fetchSubIssues(coords),
+    ...fetchBlockedBy(issues.map(i => i.number)),
+  ];
 
   let input: GithubToMapInput = { issues, milestones, repo, relationships };
   // For a filtered map, name = `<repo> — <filter>`; subtitle stays the repo

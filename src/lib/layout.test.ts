@@ -95,6 +95,45 @@ describe('layoutStations', () => {
     expect(out.a.col).toBe(0);
   });
 
+  it('bumps an unrelated station off a line that would run straight through it', () => {
+    // a→b→c chain plus a long a→c edge. Initially a(0,0), b(1,0), c(2,0): the
+    // a→c run passes straight through b at (1,0). Clearance must move b off row 0.
+    const nodes: LayoutNode[] = [
+      { id: 'a', lineId: 'l1' },
+      { id: 'b', lineId: 'l1' },
+      { id: 'c', lineId: 'l1' },
+    ];
+    const prereqs = { b: ['a'], c: ['b', 'a'] };
+    const out = layoutStations(nodes, prereqs);
+    expect(out.a).toMatchObject({ col: 0, row: 0 });
+    expect(out.c).toMatchObject({ col: 2, row: 0 });
+    // b is bumped down so the a→c line no longer crosses it.
+    expect(out.b.col).toBe(1);
+    expect(out.b.row).not.toBe(0);
+  });
+
+  it('clearance is deterministic and leaves a clear case untouched', () => {
+    const nodes: LayoutNode[] = [
+      { id: 'a', lineId: 'l1' },
+      { id: 'b', lineId: 'l1' },
+      { id: 'c', lineId: 'l1' },
+    ];
+    const prereqs = { b: ['a'], c: ['b', 'a'] };
+    expect(layoutStations(nodes, prereqs)).toEqual(layoutStations(nodes, prereqs));
+    // A simple chain has no crossing, so nothing is bumped.
+    const chain = layoutStations(
+      [
+        { id: 'a', lineId: 'l1' },
+        { id: 'b', lineId: 'l1' },
+        { id: 'c', lineId: 'l1' },
+      ],
+      { b: ['a'], c: ['b'] },
+    );
+    expect(chain.a.row).toBe(0);
+    expect(chain.b.row).toBe(0);
+    expect(chain.c.row).toBe(0);
+  });
+
   it('does not infinite-loop on a stray cycle', () => {
     const nodes: LayoutNode[] = [
       { id: 'a', lineId: 'l1' },

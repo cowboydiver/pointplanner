@@ -78,6 +78,35 @@ describe('fetchRepoInput', () => {
     expect(input.issues.map(i => i.number)).toEqual([2]); // PR #99 dropped
     expect(input.milestones).toEqual([{ title: 'M1', number: 1, dueOn: '2026-07-01T00:00:00Z' }]);
     expect(input.repo).toEqual({ name: 'r', description: 'desc' });
+    // Sub-issue link (#1 child of #2); blocked_by returns empty here.
     expect(input.relationships).toEqual([{ prereq: 1, dependent: 2 }]);
+  });
+
+  it('includes native blocked-by dependencies as prereq→dependent pairs', async () => {
+    // Two open issues; #2 is blocked by #3 via the REST dependencies endpoint.
+    const fetchImpl = vi.fn(async (url: string) => {
+      const json = (data: unknown) => new Response(JSON.stringify(data), { status: 200 });
+      if (url.includes('/graphql')) {
+        return json({ data: { repository: { issues: { pageInfo: { hasNextPage: false, endCursor: null }, nodes: [] } } } });
+      }
+      if (url.includes('/milestones')) return json([]);
+      if (url.includes('/dependencies/blocked_by')) {
+        return json(url.includes('/issues/2/') ? [{ number: 3 }] : []);
+      }
+      if (/\/repos\/[^/]+\/[^/]+\/issues/.test(url)) {
+        if (url.includes('page=1')) {
+          return json([
+            { number: 2, title: 'Blocked', state: 'open' },
+            { number: 3, title: 'Blocker', state: 'open' },
+          ]);
+        }
+        return json([]);
+      }
+      if (/\/repos\/[^/]+\/[^/]+$/.test(url)) return json({ name: 'r', description: 'd' });
+      return new Response('[]', { status: 200 });
+    }) as unknown as FetchLike;
+
+    const input = await fetchRepoInput('tok', 'o', 'r', fetchImpl);
+    expect(input.relationships).toEqual([{ prereq: 3, dependent: 2 }]);
   });
 });

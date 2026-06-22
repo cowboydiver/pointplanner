@@ -36,4 +36,10 @@ export interface Edge {
 export interface Project {
   name: string;
   subtitle: string;
+  /**
+   * Map-wide label rotation in degrees, applied to every station label around
+   * its station anchor (subway-map style). Saved with the map so the orientation
+   * travels with it. Omitted / 0 means horizontal labels. See ADR 0003.
+   */
+  labelAngle?: number;
 }

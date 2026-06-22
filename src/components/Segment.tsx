@@ -16,28 +16,20 @@ export function Segment({ edge, stationById, lineColor, isUpcoming, isDim }: Seg
     return pointsToPath(pts, CORNER_RADIUS);
   }, [edge, stationById]);
 
-  const casingClass = `seg-casing${isDim ? ' dim' : ''}`;
   const segClass = `seg${isUpcoming ? ' upcoming' : ''}${isDim ? ' dim' : ''}`;
 
+  // No white casing: lines render as continuous colored strokes so crossings
+  // read as crossings, not breaks. Parallel-line separation is handled at layout
+  // time (see layoutStations) rather than by a paper-colored outline.
   return (
-    <>
-      <path
-        d={d}
-        className={casingClass}
-        fill="none"
-        data-line={edge.line}
-        data-from={edge.from}
-        data-to={edge.to}
-      />
-      <path
-        d={d}
-        className={segClass}
-        fill="none"
-        stroke={lineColor}
-        data-line={edge.line}
-        data-from={edge.from}
-        data-to={edge.to}
-      />
-    </>
+    <path
+      d={d}
+      className={segClass}
+      fill="none"
+      stroke={lineColor}
+      data-line={edge.line}
+      data-from={edge.from}
+      data-to={edge.to}
+    />
   );
 }

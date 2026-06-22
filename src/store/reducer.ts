@@ -47,6 +47,7 @@ export type Action =
   | { type: 'UPDATE_LINE'; id: string; data: LineData }
   | { type: 'DELETE_LINE'; id: string }
   | { type: 'SET_THEME'; theme: 'light' | 'dark' }
+  | { type: 'SET_LABEL_ANGLE'; angle: number }
   | { type: 'OPEN_MODAL'; preset?: { line?: string; prereqs?: string[] } }
   | { type: 'OPEN_EDIT_MODAL'; id: string }
   | { type: 'CLOSE_MODAL' };
@@ -360,6 +361,11 @@ export function reducer(state: StoreState, action: Action): StoreState {
 
     case 'SET_THEME':
       return { ...state, theme: action.theme };
+
+    case 'SET_LABEL_ANGLE':
+      // Map-wide setting persisted in `project`, so it rides the normal autosave
+      // path (and is dropped on read-only stores via MUTATING_ACTIONS).
+      return { ...state, project: { ...state.project, labelAngle: action.angle } };
 
     case 'OPEN_MODAL':
       return { ...state, modalOpen: true, modalOpenCount: state.modalOpenCount + 1, modalMode: 'create', editId: null, modalPreset: action.preset || null };
