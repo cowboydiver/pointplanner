@@ -21,7 +21,7 @@ function isLabelAngle(n: number): n is LabelAngle {
 }
 
 /** Read the saved angle for a map; 0 when unset, malformed, or storage is unavailable. */
-export function loadLabelAngle(storage: Storage, mapId: string): LabelAngle {
+export function loadLabelAngle(storage: Pick<Storage, 'getItem'>, mapId: string): LabelAngle {
   try {
     const raw = storage.getItem(KEY_PREFIX + mapId);
     if (raw === null) return 0;
@@ -33,7 +33,7 @@ export function loadLabelAngle(storage: Storage, mapId: string): LabelAngle {
 }
 
 /** Persist the angle for a map. 0 clears the key so unrotated maps leave no trace. */
-export function saveLabelAngle(storage: Storage, mapId: string, angle: number): void {
+export function saveLabelAngle(storage: Pick<Storage, 'setItem' | 'removeItem'>, mapId: string, angle: number): void {
   try {
     if (angle === 0) storage.removeItem(KEY_PREFIX + mapId);
     else storage.setItem(KEY_PREFIX + mapId, String(angle));
