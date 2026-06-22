@@ -1,4 +1,4 @@
-import type { Station, Line, Edge } from '../types';
+import type { Station, Line, Edge } from '../types.ts';
 
 export interface Indexes {
   stationById: Record<string, Station>;

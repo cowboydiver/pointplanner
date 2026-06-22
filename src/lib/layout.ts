@@ -1,4 +1,4 @@
-import type { LabelPlacement } from '../types';
+import type { LabelPlacement } from '../types.ts';
 
 /**
  * Minimal node shape the layout cares about. Callers pass stations in a stable

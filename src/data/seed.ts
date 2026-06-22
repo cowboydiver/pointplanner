@@ -1,4 +1,4 @@
-import type { Project, Line, Station, Edge } from '../types';
+import type { Project, Line, Station, Edge } from '../types.ts';
 
 export const PROJECT: Project = {
   name: "Q3 Product Launch",

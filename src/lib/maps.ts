@@ -1,5 +1,5 @@
-import type { Project, Line, Station, Edge } from '../types';
-import { PROJECT, LINES, STATIONS, EDGES } from '../data/seed';
+import type { Project, Line, Station, Edge } from '../types.ts';
+import { PROJECT, LINES, STATIONS, EDGES } from '../data/seed.ts';
 
 export interface MapData {
   project: Project;

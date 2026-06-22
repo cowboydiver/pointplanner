@@ -7,8 +7,8 @@
 // unit-tested under vitest with an injected fetch double. See githubFetch.test.ts.
 //
 // NOTE on import: this file imports the pure transform's *types* from src/lib via
-// a relative path. Under Deno the function bundler resolves it through the
-// function's deno.json (sloppy-imports); under vitest, vite resolves it directly.
+// a relative path with an explicit .ts extension, so both the Supabase deploy
+// bundler and vitest (via vite) resolve it without relying on sloppy-imports.
 import type {
   GitHubIssue,
   GitHubMilestone,

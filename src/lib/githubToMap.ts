@@ -1,9 +1,9 @@
-import type { Line, Station, Edge } from '../types';
-import type { MapData } from './maps';
-import { PLACEHOLDER_DESC, PLACEHOLDER_OWNER, PLACEHOLDER_DASH } from './placeholders';
-import { buildIndexes } from './indexes';
-import { recompute } from './dependencies';
-import { layoutStations, type LayoutNode } from './layout';
+import type { Line, Station, Edge } from '../types.ts';
+import type { MapData } from './maps.ts';
+import { PLACEHOLDER_DESC, PLACEHOLDER_OWNER, PLACEHOLDER_DASH } from './placeholders.ts';
+import { buildIndexes } from './indexes.ts';
+import { recompute } from './dependencies.ts';
+import { layoutStations, type LayoutNode } from './layout.ts';
 
 // Plain-object shapes matching what `gh` returns (subset we rely on). The
 // generator script feeds these straight through; keep this module I/O-free so

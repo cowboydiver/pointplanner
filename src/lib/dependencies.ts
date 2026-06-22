@@ -1,4 +1,4 @@
-import type { Station } from '../types';
+import type { Station } from '../types.ts';
 
 /**
  * Recompute availability for all non-done/non-active stations.

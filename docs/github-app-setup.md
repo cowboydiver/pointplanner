@@ -101,9 +101,10 @@ supabase secrets set \
 ## 4. Deploy the Edge Functions
 
 The functions live in `supabase/functions/`. The sync function reuses the pure
-transform from `src/lib/`, whose internal imports are extensionless; the bundled
-`supabase/functions/deno.json` enables `sloppy-imports` so the Deno/Supabase
-bundler resolves them.
+transform from `src/lib/`. The Supabase deploy bundler does **not** honor Deno's
+`sloppy-imports`, so those `src/lib` modules use explicit `.ts` import extensions
+(allowed by the app's `allowImportingTsExtensions` tsconfig, so Vite + `tsc` build
+the SPA unchanged). Deploy from the repo root so the bundler can reach `src/lib/`.
 
 ```bash
 supabase functions deploy github-webhook       --no-verify-jwt   # GitHub calls it; auth is the HMAC
