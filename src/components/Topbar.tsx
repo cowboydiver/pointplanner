@@ -34,22 +34,22 @@ export function Topbar() {
       >
         {state.theme === 'dark' ? '☀ Light' : '☾ Dark'}
       </button>
-      {!readOnly && (
-        <button
-          className="tb-btn"
-          type="button"
-          aria-pressed={(state.project.labelAngle ?? 0) !== 0}
-          title="Rotate all station labels"
-          onClick={() =>
-            dispatch({
-              type: 'SET_LABEL_ANGLE',
-              angle: (state.project.labelAngle ?? 0) === 0 ? 45 : 0,
-            })
-          }
-        >
-          ⤢ Labels {(state.project.labelAngle ?? 0) === 0 ? '0°' : '45°'}
-        </button>
-      )}
+      {/* Label rotation is a per-viewer display preference, so it stays available
+          even on read-only mirrors / Viewer shares (unlike content edits). */}
+      <button
+        className="tb-btn"
+        type="button"
+        aria-pressed={state.labelAngle !== 0}
+        title="Rotate all station labels"
+        onClick={() =>
+          dispatch({
+            type: 'SET_LABEL_ANGLE',
+            angle: state.labelAngle === 0 ? 45 : 0,
+          })
+        }
+      >
+        ⤢ Labels {state.labelAngle === 0 ? '0°' : '45°'}
+      </button>
       {isOwner && (
         <button
           className="tb-btn"

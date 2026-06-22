@@ -21,7 +21,7 @@ PointPlanner renders a project as a **subway transit map**: tasks are **stations
 | **Routing** | The algorithm that converts an (source, target) station pair into a sequence of 45°-only waypoints |
 | **df (diagonal-first)** | Routing flag: when true, the path goes diagonal before going straight; used when source and target are on different rows |
 | **Tag** | A short keyword attached to a station, shown in its detail panel. Sourced from a GitHub label or from a leading title prefix shared across stations |
-| **Label angle** | A map-wide rotation applied to every station label (subway-map style), saved with the map so the orientation travels with it |
+| **Label angle** | A rotation applied to every station label at once (subway-map style, 0° or 45°). A per-viewer display preference like the theme — stored per map in `localStorage`, never in the saved map — so it works even on read-only mirrors. See ADR 0003 |
 
 ## Accounts & sharing
 

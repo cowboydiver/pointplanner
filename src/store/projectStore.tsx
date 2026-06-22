@@ -5,6 +5,7 @@ import { loadMap, saveMap, getMapSource, type MapRole, type MapSource } from '..
 import { supabase } from '../data/supabase';
 import { useMapRegistry } from './mapRegistry';
 import { reducer, resolveReadOnly, type StoreState, type PersistedState, type Action } from './reducer';
+import { loadLabelAngle, saveLabelAngle } from '../lib/labelAnglePref';
 import { MirrorBanner } from '../components/MirrorBanner';
 
 // Re-export the store's public types so existing imports from this module keep working.
@@ -23,7 +24,6 @@ const MUTATING_ACTIONS = new Set<Action['type']>([
   'CREATE_LINE',
   'UPDATE_LINE',
   'DELETE_LINE',
-  'SET_LABEL_ANGLE',
 ]);
 
 interface StoreContextValue {
@@ -107,6 +107,9 @@ function LoadedStore({
     selectedId: null,
     highlightLine: null,
     theme: 'light',
+    // Per-viewer rotation, restored from localStorage so it survives reloads and
+    // works on read-only mirrors (it never touches the saved map). See ADR 0003.
+    labelAngle: loadLabelAngle(localStorage, mapId),
     modalOpen: false,
     modalOpenCount: 0,
     modalMode: 'create',
@@ -231,6 +234,13 @@ function LoadedStore({
   useEffect(() => {
     document.body.dataset.theme = state.theme === 'dark' ? 'dark' : '';
   }, [state.theme]);
+
+  // Persist the per-viewer label rotation for this map. Unlike map content this
+  // is a private display preference, so it goes to localStorage (not the saved
+  // blob) and applies even on read-only mirrors / Viewer shares.
+  useEffect(() => {
+    saveLabelAngle(localStorage, mapId, state.labelAngle);
+  }, [mapId, state.labelAngle]);
 
   return (
     <StoreContext.Provider value={{ state, indexes, dispatch, readOnly, isMirror }}>

@@ -27,6 +27,10 @@ export interface StoreState extends PersistedState {
   selectedId: string | null;
   highlightLine: string | null;
   theme: 'light' | 'dark';
+  // Per-viewer label rotation in degrees (0 = horizontal, 45 = subway-style).
+  // A private display preference like `theme`, not saved map content — it is
+  // persisted per-map in localStorage so it works on read-only mirrors. ADR 0003.
+  labelAngle: number;
   modalOpen: boolean;
   modalOpenCount: number;
   modalMode: 'create' | 'edit';
@@ -363,9 +367,10 @@ export function reducer(state: StoreState, action: Action): StoreState {
       return { ...state, theme: action.theme };
 
     case 'SET_LABEL_ANGLE':
-      // Map-wide setting persisted in `project`, so it rides the normal autosave
-      // path (and is dropped on read-only stores via MUTATING_ACTIONS).
-      return { ...state, project: { ...state.project, labelAngle: action.angle } };
+      // View-only preference (like SET_THEME): lives in client state, never in
+      // the saved map, so it is NOT a MUTATING_ACTION and works on read-only
+      // mirrors. projectStore persists it per-map to localStorage.
+      return { ...state, labelAngle: action.angle };
 
     case 'OPEN_MODAL':
       return { ...state, modalOpen: true, modalOpenCount: state.modalOpenCount + 1, modalMode: 'create', editId: null, modalPreset: action.preset || null };

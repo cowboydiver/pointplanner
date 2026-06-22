@@ -10,7 +10,7 @@ interface StationNodeProps {
   primaryLine: Line;
   isSelected: boolean;
   isDim: boolean;
-  /** Map-wide label rotation in degrees (subway style); 0 = horizontal. */
+  /** Per-viewer label rotation in degrees (subway style); 0 = horizontal. */
   labelAngle?: number;
   onSelect: (id: string) => void;
 }
