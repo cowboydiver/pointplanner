@@ -36,6 +36,12 @@ jobs:
         env:
           VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
           VITE_SUPABASE_PUBLISHABLE_KEY: ${{ vars.VITE_SUPABASE_PUBLISHABLE_KEY }}
+          # GitHub App config for the "Connect a repo" mirror flow. Both are public
+          # client values (client id + a callback route), so they're repo Actions
+          # Variables too. If unset, the build succeeds but the Connect modal
+          # reports that GitHub isn't configured.
+          VITE_GITHUB_CLIENT_ID: ${{ vars.VITE_GITHUB_CLIENT_ID }}
+          VITE_GITHUB_CALLBACK_URL: ${{ vars.VITE_GITHUB_CALLBACK_URL }}
       - uses: actions/configure-pages@v5
         with:
           # Self-enable Pages (and set source to Actions) so no manual
