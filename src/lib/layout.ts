@@ -21,9 +21,12 @@ export interface LayoutResult {
  *
  * - `col` ← topological depth: a root (no station prerequisites) sits at col 0;
  *   every other station lands one column right of its DEEPEST prerequisite.
- * - `row` ← packed within the station's line band. Lines are stacked in the
- *   order their first station appears; within a band stations spread across
- *   rows, and a col/row collision bumps the row deterministically.
+ * - `row` ← packed within the station's line band. Each line keeps its own base
+ *   row (a line reads as one horizontal strand), but the bands are ordered so
+ *   that lines joined by cross-line edges sit on adjacent rows, shortening those
+ *   edges and cutting crossings. Within a column, same-band collisions fan
+ *   downward ordered by the average row of a node's prerequisites (a barycentre
+ *   pass) so fan-ins don't cross. Disconnected lines keep first-appearance order.
  * - `lp` ← seed heuristic: `row >= 3 ? 'bottom' : 'top'`.
  *
  * Pure and order-stable: identical input (same node order, same `prereqs`)
@@ -67,32 +70,70 @@ export function layoutStations(
 
   for (const n of nodes) depthOf(n.id);
 
-  // ---- 2. Assign each line a base row band, in first-appearance order. ----
-  const bandByLine = new Map<string, number>();
-  let nextBand = 0;
+  // ---- 2. Order line bands so interconnected lines sit on adjacent rows. ----
+  // Each line still gets its own base row; we just cluster lines joined by
+  // cross-line edges next to each other (see orderLineBands), which shortens
+  // those edges and cuts crossings. Falls back to first-appearance order.
+  const lineByNode = new Map(nodes.map(n => [n.id, n.lineId]));
+  const appearOrder: string[] = [];
+  const seenLine = new Set<string>();
   for (const n of nodes) {
-    if (!bandByLine.has(n.lineId)) {
-      bandByLine.set(n.lineId, nextBand);
-      nextBand += 1;
+    if (!seenLine.has(n.lineId)) {
+      seenLine.add(n.lineId);
+      appearOrder.push(n.lineId);
     }
   }
+  const bandByLine = orderLineBands(appearOrder, nodes, prereqs, nodeIds);
 
-  // ---- 3. Pack rows per line, resolving col/row collisions deterministically.
-  // `occupied` keys every taken cell so two stations never share a col/row.
-  // Within a line band we prefer the band row, then fan outward (band+1, band+2,
-  // …) so a line's stations spread across rows as the column fills up.
+  // ---- 3. Pack rows column by column. A node prefers its band row; same-band
+  // collisions fan downward (band+1, band+2, …). Within a column nodes are
+  // ordered by (band, barycentre of placed prerequisites, node index), so a
+  // fan-in's targets stack in their sources' order instead of crossing. Because
+  // every prerequisite lives in a strictly earlier column, its position is
+  // already fixed when its dependents are placed. `occupied` keys every taken
+  // cell so two stations never share a col/row.
+  const nodeIndex = new Map(nodes.map((n, i) => [n.id, i]));
+  const byCol = new Map<number, string[]>();
+  for (const n of nodes) {
+    const col = colById.get(n.id) ?? 0;
+    const list = byCol.get(col);
+    if (list) list.push(n.id);
+    else byCol.set(col, [n.id]);
+  }
+
   const occupied = new Set<string>(); // `${col},${row}`
   const pos = new Map<string, { col: number; row: number }>();
 
-  for (const n of nodes) {
-    const col = colById.get(n.id) ?? 0;
-    const band = bandByLine.get(n.lineId) ?? 0;
+  for (const col of [...byCol.keys()].sort((a, b) => a - b)) {
+    const ids = byCol.get(col)!;
 
-    let row = band;
-    while (occupied.has(`${col},${row}`)) row += 1;
+    const bary = new Map<string, number>();
+    for (const id of ids) {
+      const parents = (prereqs[id] || []).filter(p => pos.has(p));
+      if (parents.length) {
+        bary.set(id, parents.reduce((a, p) => a + pos.get(p)!.row, 0) / parents.length);
+      }
+    }
 
-    occupied.add(`${col},${row}`);
-    pos.set(n.id, { col, row });
+    const ordered = [...ids].sort((a, b) => {
+      const ba = bandByLine.get(lineByNode.get(a)!) ?? 0;
+      const bb = bandByLine.get(lineByNode.get(b)!) ?? 0;
+      if (ba !== bb) return ba - bb;
+      const ya = bary.get(a);
+      const yb = bary.get(b);
+      if (ya !== undefined && yb !== undefined && ya !== yb) return ya - yb;
+      if (ya !== undefined && yb === undefined) return -1;
+      if (ya === undefined && yb !== undefined) return 1;
+      return nodeIndex.get(a)! - nodeIndex.get(b)!;
+    });
+
+    for (const id of ordered) {
+      const band = bandByLine.get(lineByNode.get(id)!) ?? 0;
+      let row = band;
+      while (occupied.has(`${col},${row}`)) row += 1;
+      occupied.add(`${col},${row}`);
+      pos.set(id, { col, row });
+    }
   }
 
   // ---- 4. Clearance: bump stations off any unrelated edge's straight run. ----
@@ -114,6 +155,72 @@ export function layoutStations(
   }
 
   return result;
+}
+
+/**
+ * Order line bands so lines joined by cross-line edges land on adjacent rows.
+ *
+ * Builds a weighted line-adjacency graph (how many edges cross between each pair
+ * of lines), then greedily appends the unplaced line most strongly connected to
+ * the lines already placed, seeding and breaking ties by first-appearance order.
+ * The result clusters interconnected lines together — shortening cross-line
+ * edges and cutting crossings — while disconnected lines keep first-appearance
+ * order. Pure and deterministic (iteration follows `appearOrder`).
+ *
+ * @returns `lineId -> band index` (0 = top band)
+ */
+function orderLineBands(
+  appearOrder: string[],
+  nodes: LayoutNode[],
+  prereqs: Record<string, string[]>,
+  nodeIds: Set<string>,
+): Map<string, number> {
+  const lineByNode = new Map(nodes.map(n => [n.id, n.lineId]));
+  const weight = new Map<string, Map<string, number>>();
+  const add = (a: string, b: string) => {
+    let m = weight.get(a);
+    if (!m) {
+      m = new Map();
+      weight.set(a, m);
+    }
+    m.set(b, (m.get(b) ?? 0) + 1);
+  };
+  for (const n of nodes) {
+    for (const p of prereqs[n.id] || []) {
+      if (!nodeIds.has(p) || p === n.id) continue;
+      const lb = lineByNode.get(p)!;
+      if (lb === n.lineId) continue; // same-line edges don't pull bands together
+      add(n.lineId, lb);
+      add(lb, n.lineId);
+    }
+  }
+
+  const idx = new Map(appearOrder.map((l, i) => [l, i]));
+  const remaining = new Set(appearOrder);
+  const placed: string[] = [];
+  while (remaining.size) {
+    let best: string | null = null;
+    let bestScore = -1;
+    let bestIdx = Infinity;
+    for (const l of appearOrder) {
+      if (!remaining.has(l)) continue;
+      let score = 0;
+      const w = weight.get(l);
+      if (w) for (const p of placed) score += w.get(p) ?? 0;
+      const li = idx.get(l)!;
+      if (score > bestScore || (score === bestScore && li < bestIdx)) {
+        best = l;
+        bestScore = score;
+        bestIdx = li;
+      }
+    }
+    placed.push(best!);
+    remaining.delete(best!);
+  }
+
+  const bandByLine = new Map<string, number>();
+  placed.forEach((l, i) => bandByLine.set(l, i));
+  return bandByLine;
 }
 
 /**

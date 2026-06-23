@@ -44,6 +44,16 @@ edits stop nudging one station and instead re-run the whole layout via a new
   to exactly one line and each line gets its own row band, different lines land on
   different rows. We do **not** add parallel-offset ("side-by-side track")
   rendering; the rare genuinely-collinear cross-line case is accepted.
+- **Band-preserving de-tangle for the "snake nest."** `layoutStations` keeps each
+  line on its own band (a line still reads as one horizontal strand) but reduces
+  crossings two ways: bands are **ordered by adjacency** (lines joined by
+  cross-line edges cluster on neighbouring rows, shortening those edges), and
+  within a column same-band collisions are **ordered by the barycentre** of a
+  node's already-placed prerequisites (so fan-ins stack in their sources' order
+  instead of crossing). Both are pure and deterministic; disconnected lines keep
+  first-appearance order. This improves both interactive maps (via
+  `relayoutStations`) and GitHub-mirror maps (via `githubToMap` on the next sync,
+  which fully regenerates the layout — so a redeploy + re-sync propagates it).
 - **Clearance wins over straightness.** When keeping a line off an unrelated
   station conflicts with keeping it straight, the station is bumped and the line
   bends — never the reverse. This is the existing `spreadForClearance` priority,
@@ -61,9 +71,12 @@ Considered and rejected:
 
 - *Re-layout on load* — disruptive re-flow of maps the user only opened, plus
   autosave/version churn under ADR 0002.
-- *Crossing-minimization now* (Sugiyama / barycenter ordering) — a large
-  algorithmic investment; deferred until band separation proves insufficient on
-  real maps.
+- *Full Sugiyama-style crossing-minimization* — barycentre **row ordering** that
+  relaxes strict bands to minimize crossings globally. It tangles least, but a
+  line would no longer sit on a consistent row, undermining the subway-line
+  identity that is the product's whole point. Rejected in favour of the
+  band-preserving de-tangle above, which keeps the bands and only reorders them /
+  the within-column collision order.
 - *Parallel-offset rendering for #1* — large, corner-case-heavy rendering change
   that bands make largely unnecessary.
 
@@ -78,5 +91,12 @@ Considered and rejected:
 - A user can tidy any existing cluttered map at will with **Auto-arrange**; it is
   a mutating action, so it autosaves and is unavailable on read-only mirrors and
   Viewer shares.
-- The "snake nest" (crossing density) improves via band separation but is not
-  fully solved; dedicated crossing-minimization remains a possible follow-up.
+- The "snake nest" (crossing density) is actively reduced by adjacency band
+  ordering and barycentre packing, within the constraint that every line keeps a
+  single band row. Pathological graphs can still cross; a future change could go
+  further only by relaxing bands, which we have ruled out for now.
+- Because mirror sync (`supabase/functions/_shared/sync.ts`) regenerates the map
+  wholesale on every issue change / reconnect / re-sync, mirror maps re-arrange
+  automatically and stay read-only throughout. The edge functions bundle
+  `src/lib/layout.ts`, so layout-algorithm changes reach mirrors only after a
+  redeploy and the next sync.

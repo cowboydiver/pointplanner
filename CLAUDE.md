@@ -36,7 +36,7 @@ seed data (src/data/seed.ts)
 | `dependencies.ts` | `recompute` — cascades `locked`↔`available` based on which prereqs are `done` |
 | `routing.ts` | `routePoints` (45° waypoints, `df` flag = diagonal-first), `pointsToPath` (rounded-corner SVG path), grid helpers `px`/`py` |
 | `bounds.ts` | `computeBounds` → SVG viewBox accounting for label padding |
-| `layout.ts` | `layoutStations` (deterministic topological columns + per-line row bands + clearance pass) and `relayoutStations` — re-derives every station's position from the graph. Used by generated maps and by every interactive structural edit / Auto-arrange (ADR 0005) |
+| `layout.ts` | `layoutStations` (deterministic topological columns + adjacency-ordered per-line row bands + barycentre column packing + clearance pass) and `relayoutStations` — re-derives every station's position from the graph. Used by generated maps and by every interactive structural edit / Auto-arrange (ADR 0005) |
 | `placement.ts` | `slugify` — generates a unique station id from a task name |
 
 Grid constants (do not change without updating tests): `PAD_X=96, COL=152, PAD_Y=92, ROW=94, CORNER_RADIUS=18`.
