@@ -1,5 +1,14 @@
 import { describe, it, expect } from 'vitest';
-import { layoutStations, type LayoutNode } from './layout';
+import { layoutStations, relayoutStations, type LayoutNode } from './layout';
+import type { Edge, Station } from '../types';
+
+function makeStation(id: string, lines: string[], overrides: Partial<Station> = {}): Station {
+  return {
+    id, name: id, lines, col: 99, row: 99, lp: 'bottom',
+    status: 'locked', desc: 'd', owner: 'o', role: 'r', due: '-', est: '-', tags: ['t'],
+    ...overrides,
+  };
+}
 
 describe('layoutStations', () => {
   it('assigns col by topological depth (roots at 0, dependents one column right)', () => {
@@ -147,5 +156,64 @@ describe('layoutStations', () => {
     // Coordinates are finite numbers.
     expect(Number.isFinite(out.a.col)).toBe(true);
     expect(Number.isFinite(out.b.col)).toBe(true);
+  });
+});
+
+describe('relayoutStations', () => {
+  it('writes col/row/lp from the graph onto each station', () => {
+    // a → b → c chain; incoming stale coordinates are overwritten by depth.
+    const stations = [
+      makeStation('a', ['l1']),
+      makeStation('b', ['l1']),
+      makeStation('c', ['l1']),
+    ];
+    const edges: Edge[] = [
+      { from: 'a', to: 'b', line: 'l1' },
+      { from: 'b', to: 'c', line: 'l1' },
+    ];
+    const out = relayoutStations(stations, edges);
+    const byId = Object.fromEntries(out.map(s => [s.id, s]));
+    expect(byId.a.col).toBe(0);
+    expect(byId.b.col).toBe(1);
+    expect(byId.c.col).toBe(2);
+    // Same line, no crossing → straight on one row.
+    expect([byId.a.row, byId.b.row, byId.c.row]).toEqual([0, 0, 0]);
+    expect(byId.a.lp).toBe('top');
+  });
+
+  it('preserves every non-position field', () => {
+    const stations = [
+      makeStation('a', ['l1'], { name: 'Alpha', status: 'done', owner: 'me', tags: ['x', 'y'] }),
+    ];
+    const [out] = relayoutStations(stations, []);
+    expect(out).toMatchObject({
+      id: 'a', name: 'Alpha', lines: ['l1'], status: 'done', owner: 'me', tags: ['x', 'y'],
+    });
+  });
+
+  it('bands an interchange on its primary (first) line', () => {
+    // a on l1; b is an interchange [l2, l1]; c on l1. Distinct bands by first
+    // appearance: l1→band 0, l2→band 1. All roots at col 0 so bands show as rows.
+    const stations = [
+      makeStation('a', ['l1']),
+      makeStation('b', ['l2', 'l1']),
+      makeStation('c', ['l1']),
+    ];
+    const out = relayoutStations(stations, []);
+    const byId = Object.fromEntries(out.map(s => [s.id, s]));
+    // b bands on l2 (its first line), a distinct band from l1.
+    expect(byId.a.row).toBe(0); // l1 band 0
+    expect(byId.b.row).toBe(1); // l2 band 1
+    expect(byId.c.row).toBe(2); // l1 band 0 taken at col 0 → bumped down
+  });
+
+  it('is deterministic for identical input', () => {
+    const stations = [makeStation('a', ['l1']), makeStation('b', ['l1'])];
+    const edges: Edge[] = [{ from: 'a', to: 'b', line: 'l1' }];
+    expect(relayoutStations(stations, edges)).toEqual(relayoutStations(stations, edges));
+  });
+
+  it('handles an empty map', () => {
+    expect(relayoutStations([], [])).toEqual([]);
   });
 });

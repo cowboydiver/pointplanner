@@ -1,4 +1,4 @@
-import type { LabelPlacement } from '../types.ts';
+import type { Edge, LabelPlacement, Station } from '../types.ts';
 import { resolveDf } from './routing.ts';
 
 /**
@@ -114,6 +114,37 @@ export function layoutStations(
   }
 
   return result;
+}
+
+/**
+ * Re-derive every station's grid position from the dependency graph, the
+ * interactive-map counterpart to the inline `layoutStations` call generated
+ * maps make in `githubToMap`. Positions are never authored by hand (there is no
+ * drag), so re-flowing a whole map on a structural edit (or on demand via
+ * Auto-arrange) discards nothing — see ADR 0005.
+ *
+ * The band line is each station's primary line (`lines[0]`), matching how the
+ * renderer picks a station's primary color; an interchange therefore bands on
+ * its first line. Stations are fed in array order, the stable order callers
+ * already keep (append on create, in-place on update, filtered on delete), so
+ * band assignment and clearance never jitter between edits.
+ *
+ * Only `col`/`row`/`lp` change; every other field (status, lines, metadata) is
+ * preserved. Status is settled separately by `recompute`.
+ */
+export function relayoutStations(stations: Station[], edges: Edge[]): Station[] {
+  const nodes: LayoutNode[] = stations.map(s => ({ id: s.id, lineId: s.lines[0] }));
+
+  const prereqs: Record<string, string[]> = {};
+  for (const e of edges) {
+    (prereqs[e.to] = prereqs[e.to] || []).push(e.from);
+  }
+
+  const layout = layoutStations(nodes, prereqs);
+  return stations.map(s => {
+    const pos = layout[s.id];
+    return pos ? { ...s, col: pos.col, row: pos.row, lp: pos.lp } : s;
+  });
 }
 
 /** A station-to-station dependency edge, derived from the prereq graph. */

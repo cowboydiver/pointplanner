@@ -173,6 +173,51 @@ describe('UPDATE_TASK', () => {
   });
 });
 
+describe('CREATE_TASK', () => {
+  it('lays the new station out by dependency depth, not a frozen guess', () => {
+    // New task depends on c (col 2) → it lands one column right, at col 3.
+    const next = reducer(makeState(), {
+      type: 'CREATE_TASK',
+      data: { name: 'Deploy', line: 'a', prereqs: ['c'] },
+    });
+    const d = next.stations.find(s => s.id === 'deploy')!;
+    expect(d.col).toBe(3);
+    // The whole chain stays straight on one row.
+    expect(next.stations.map(s => s.row)).toEqual([0, 0, 0, 0]);
+  });
+});
+
+describe('DELETE_TASK', () => {
+  it('re-flows survivors so a deleted mid-line station closes the gap', () => {
+    // Delete b from a→b→c. spliceStation bridges a→c; relayout pulls c left.
+    const next = reducer(makeState(), { type: 'DELETE_TASK', id: 'b' });
+    expect(next.stations.map(s => s.id)).toEqual(['a', 'c']);
+    const c = next.stations.find(s => s.id === 'c')!;
+    // c was at col 2 behind b; with b gone it sits directly right of a at col 1.
+    expect(c.col).toBe(1);
+    expect(next.edges).toEqual([{ from: 'a', to: 'c', line: 'a' }]);
+  });
+});
+
+describe('AUTO_ARRANGE', () => {
+  it('re-derives every position from the graph and is idempotent', () => {
+    const messy = makeState();
+    // Scatter the stations off their canonical positions.
+    messy.stations = messy.stations.map(s => ({ ...s, col: 7, row: 5 }));
+
+    const once = reducer(messy, { type: 'AUTO_ARRANGE' });
+    expect(once.stations.map(s => [s.col, s.row])).toEqual([[0, 0], [1, 0], [2, 0]]);
+
+    const twice = reducer(once, { type: 'AUTO_ARRANGE' });
+    expect(twice.stations).toEqual(once.stations);
+  });
+
+  it('leaves statuses untouched', () => {
+    const next = reducer(makeState(), { type: 'AUTO_ARRANGE' });
+    expect(next.stations.map(s => s.status)).toEqual(['done', 'available', 'locked']);
+  });
+});
+
 describe('SET_DATA', () => {
   it('replaces the whole persisted blob in place', () => {
     const data = {

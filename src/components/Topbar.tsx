@@ -89,6 +89,16 @@ export function Topbar() {
       )}
       {!readOnly && (
         <button
+          className="tb-btn"
+          type="button"
+          title="Re-layout every station automatically to declutter the map"
+          onClick={() => dispatch({ type: 'AUTO_ARRANGE' })}
+        >
+          Auto-arrange
+        </button>
+      )}
+      {!readOnly && (
+        <button
           className="tb-btn primary"
           type="button"
           onClick={() => dispatch({ type: 'OPEN_MODAL' })}

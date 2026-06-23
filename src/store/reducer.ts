@@ -1,7 +1,8 @@
 import type { Project, Line, Station, Edge } from '../types';
 import { buildIndexes, collectSelfAndDescendants } from '../lib/indexes';
 import { recompute } from '../lib/dependencies';
-import { slugify, placeNewStation } from '../lib/placement';
+import { slugify } from '../lib/placement';
+import { relayoutStations } from '../lib/layout';
 import { lineIdFromName, normalizeShort } from '../lib/lines';
 import { PLACEHOLDER_DESC, PLACEHOLDER_OWNER, PLACEHOLDER_DASH } from '../lib/placeholders';
 import type { LabelPivot } from '../lib/labelAnglePref';
@@ -58,7 +59,8 @@ export type Action =
   | { type: 'SET_LABEL_PIVOT'; pivot: LabelPivot }
   | { type: 'OPEN_MODAL'; preset?: { line?: string; prereqs?: string[] } }
   | { type: 'OPEN_EDIT_MODAL'; id: string }
-  | { type: 'CLOSE_MODAL' };
+  | { type: 'CLOSE_MODAL' }
+  | { type: 'AUTO_ARRANGE' };
 
 export interface LineData {
   name: string;
@@ -192,15 +194,16 @@ export function reducer(state: StoreState, action: Action): StoreState {
         lineId = id;
       }
       const idx = buildIndexes(state.stations, lines, state.edges);
-      const pos = placeNewStation(lineId, data.prereqs, idx.stationById, state.stations);
       const id = slugify(data.name, idx.stationById);
+      // Placeholder coordinates — relayoutStations re-derives every position from
+      // the graph below, so they're overwritten.
       const newStation: Station = {
         id,
         name: data.name,
         lines: [lineId],
-        col: pos.col,
-        row: pos.row,
-        lp: pos.row >= 3 ? 'bottom' : 'top',
+        col: 0,
+        row: 0,
+        lp: 'top',
         status: 'locked',
         desc: data.desc || PLACEHOLDER_DESC,
         owner: data.owner || PLACEHOLDER_OWNER,
@@ -211,8 +214,10 @@ export function reducer(state: StoreState, action: Action): StoreState {
       };
       // Routing (df) is derived at render time from geometry, so edges store none.
       const newEdges: Edge[] = data.prereqs.map(pid => ({ from: pid, to: id, line: lineId }));
-      const newStations = [...state.stations, newStation];
       const newEdgesAll = [...state.edges, ...newEdges];
+      // Re-layout the whole map so the new station and its neighbours stay clean
+      // (ADR 0005), then settle statuses.
+      const newStations = relayoutStations([...state.stations, newStation], newEdgesAll);
       const idx2 = buildIndexes(newStations, lines, newEdgesAll);
       const recomputed = recompute(newStations, idx2.prereqs);
       return {
@@ -256,27 +261,18 @@ export function reducer(state: StoreState, action: Action): StoreState {
       const blocked = collectSelfAndDescendants(id, idx.dependents);
       const prereqs = data.prereqs.filter(p => idx.stationById[p] && !blocked.has(p));
 
-      // Only re-place when the prerequisite set actually changes; a metadata-only
-      // edit (or a no-prereq root task) keeps its current position and label.
+      // A structural edit changes the dependency graph or the station's line
+      // membership — both feed the layout (col from depth, row band from the
+      // primary line), so the map is re-flowed. A metadata-only edit (rename,
+      // owner, …) keeps every position untouched and never re-flows. ADR 0005.
       const prevPrereqs = state.edges.filter(e => e.to === id).map(e => e.from);
-      let col = existing.col;
-      let row = existing.row;
-      let lp = existing.lp;
-      if (!sameSet(prevPrereqs, prereqs)) {
-        const pos = placeNewStation(primaryLine, prereqs, idx.stationById,
-          state.stations.filter(s => s.id !== id));
-        col = pos.col;
-        row = pos.row;
-        lp = pos.row >= 3 ? 'bottom' : 'top';
-      }
+      const structural =
+        !sameSet(prevPrereqs, prereqs) || !sameSet(existing.lines, selectedLines);
 
       const updatedStation: Station = {
         ...existing,
         name: data.name,
         lines: selectedLines,
-        col,
-        row,
-        lp,
         desc: data.desc?.trim() || PLACEHOLDER_DESC,
         owner: data.owner?.trim() || PLACEHOLDER_OWNER,
         role: data.role?.trim() || '',
@@ -284,7 +280,7 @@ export function reducer(state: StoreState, action: Action): StoreState {
         est: data.est?.trim() || PLACEHOLDER_DASH,
         tags: data.tags || [],
       };
-      const newStations = state.stations.map(s => (s.id === id ? updatedStation : s));
+      const editedStations = state.stations.map(s => (s.id === id ? updatedStation : s));
 
       // Rebuild incoming edges from the new prereq list (colored by the task's
       // primary line). Also remap any outgoing edge still colored for a line the
@@ -297,6 +293,7 @@ export function reducer(state: StoreState, action: Action): StoreState {
       const newIncoming: Edge[] = prereqs.map(pid => ({ from: pid, to: id, line: primaryLine }));
       const newEdges: Edge[] = [...keptEdges, ...newIncoming];
 
+      const newStations = structural ? relayoutStations(editedStations, newEdges) : editedStations;
       const idx2 = buildIndexes(newStations, lines, newEdges);
       const recomputed = recompute(newStations, idx2.prereqs);
       return {
@@ -333,7 +330,12 @@ export function reducer(state: StoreState, action: Action): StoreState {
 
     case 'DELETE_TASK': {
       const newEdges = spliceStation(action.id, state.edges);
-      const newStations = state.stations.filter(s => s.id !== action.id);
+      // Re-flow the survivors so the gap closes and the spliced edges straighten
+      // instead of bending around the hole the deleted station left. ADR 0005.
+      const newStations = relayoutStations(
+        state.stations.filter(s => s.id !== action.id),
+        newEdges,
+      );
       const idx = buildIndexes(newStations, state.lines, newEdges);
       return {
         ...state,
@@ -389,6 +391,11 @@ export function reducer(state: StoreState, action: Action): StoreState {
 
     case 'CLOSE_MODAL':
       return { ...state, modalOpen: false, modalMode: 'create', editId: null, modalPreset: null };
+
+    case 'AUTO_ARRANGE':
+      // Re-derive every position from the graph on demand. Purely positional —
+      // the graph and statuses are unchanged, so there's no recompute. ADR 0005.
+      return { ...state, stations: relayoutStations(state.stations, state.edges) };
 
     default:
       return state;
