@@ -232,15 +232,17 @@ function orderLineBands(
  *
  * The band line is each station's primary line (`lines[0]`), matching how the
  * renderer picks a station's primary color; an interchange therefore bands on
- * its first line. Stations are fed in array order, the stable order callers
- * already keep (append on create, in-place on update, filtered on delete), so
- * band assignment and clearance never jitter between edits.
+ * its first line. Every station is expected to sit on at least one line; a
+ * station with no lines falls back to a single shared empty band. Stations are
+ * fed in array order, the stable order callers already keep (append on create,
+ * in-place on update, filtered on delete), so band assignment and clearance
+ * never jitter between edits.
  *
  * Only `col`/`row`/`lp` change; every other field (status, lines, metadata) is
  * preserved. Status is settled separately by `recompute`.
  */
 export function relayoutStations(stations: Station[], edges: Edge[]): Station[] {
-  const nodes: LayoutNode[] = stations.map(s => ({ id: s.id, lineId: s.lines[0] }));
+  const nodes: LayoutNode[] = stations.map(s => ({ id: s.id, lineId: s.lines[0] ?? '' }));
 
   const prereqs: Record<string, string[]> = {};
   for (const e of edges) {

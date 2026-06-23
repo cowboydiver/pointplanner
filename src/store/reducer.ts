@@ -264,10 +264,15 @@ export function reducer(state: StoreState, action: Action): StoreState {
       // A structural edit changes the dependency graph or the station's line
       // membership — both feed the layout (col from depth, row band from the
       // primary line), so the map is re-flowed. A metadata-only edit (rename,
-      // owner, …) keeps every position untouched and never re-flows. ADR 0005.
+      // owner, …) keeps every position untouched and never re-flows. The primary
+      // line (`lines[0]`) is compared on its own: reordering lines to swap the
+      // primary keeps the same set but changes the band and recolors edges, so it
+      // must re-flow too. ADR 0005.
       const prevPrereqs = state.edges.filter(e => e.to === id).map(e => e.from);
       const structural =
-        !sameSet(prevPrereqs, prereqs) || !sameSet(existing.lines, selectedLines);
+        !sameSet(prevPrereqs, prereqs) ||
+        !sameSet(existing.lines, selectedLines) ||
+        existing.lines[0] !== selectedLines[0];
 
       const updatedStation: Station = {
         ...existing,

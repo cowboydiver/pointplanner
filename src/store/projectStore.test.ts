@@ -122,6 +122,28 @@ describe('UPDATE_TASK', () => {
     expect(next.selectedId).toBe('c');
   });
 
+  it('re-flows when the primary line changes even if the membership set is unchanged', () => {
+    // b sits on [a]; make it an interchange on both lines, then swap the primary
+    // to "b" while keeping the same set. Band derives from lines[0], so the row
+    // must change — a same-set reorder still counts as structural.
+    const interchange = reducer(makeState(), {
+      type: 'UPDATE_TASK',
+      id: 'b',
+      data: { name: 'b', lines: ['a', 'b'], prereqs: ['a'] },
+    });
+    const before = interchange.stations.find(s => s.id === 'b')!;
+
+    const swapped = reducer(interchange, {
+      type: 'UPDATE_TASK',
+      id: 'b',
+      data: { name: 'b', lines: ['b', 'a'], prereqs: ['a'] },
+    });
+    const after = swapped.stations.find(s => s.id === 'b')!;
+    expect(after.lines).toEqual(['b', 'a']);
+    // Band moved from line "a" to line "b", so the row is re-derived (re-flowed).
+    expect(after.row).not.toBe(before.row);
+  });
+
   it('does NOT move the station on a metadata-only edit (prereqs unchanged)', () => {
     // b currently depends on a; keep that and only rename it.
     const next = reducer(makeState(), {
