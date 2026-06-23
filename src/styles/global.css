@@ -71,6 +71,20 @@ body[data-theme="dark"] .stale-banner { background: #3a201a; border-bottom-color
 body[data-theme="dark"] .stale-btn { background: #232730; border-color: #2a2e38; color: var(--ink); }
 body[data-theme="dark"] .stale-btn.primary { background: #f1f0ea; color: #14161c; }
 
+/* ===== GitHub-mirror info strip (connect-a-repo) ===== */
+.mirror-banner {
+  display: flex; align-items: center; gap: 9px;
+  padding: 9px 18px;
+  background: #eef3fb; border-bottom: 1px solid #c8d8f0; color: #234b86;
+  font-weight: 600; font-size: 13px;
+}
+.mirror-banner-icon { font-weight: 700; }
+.mirror-banner-msg { flex: 1; }
+.mirror-banner-msg strong { font-weight: 700; }
+.mirror-banner--error { background: #fbeae5; border-bottom-color: #e7b3a6; color: #7a2415; }
+body[data-theme="dark"] .mirror-banner { background: #1b2535; border-bottom-color: #25344c; color: #b9d0f2; }
+body[data-theme="dark"] .mirror-banner--error { background: #3a201a; border-bottom-color: #5a2c22; color: #f3c9bd; }
+
 .body { flex: 1; display: flex; min-height: 0; position: relative; }
 
 /* ===== left legend ===== */
@@ -169,9 +183,8 @@ body[data-theme="dark"] .map-ctrl:hover { background: #232732; }
 
 /* segments */
 .seg { stroke-width: var(--line-w); stroke-linecap: round; stroke-linejoin: round; transition: opacity .3s, stroke-width .2s; }
-.seg-casing { stroke: var(--paper); stroke-width: calc(var(--line-w) + 6px); stroke-linecap: round; stroke-linejoin: round; }
 .seg.upcoming { opacity: .28; }
-.seg.dim, .seg-casing.dim { opacity: .07 !important; }
+.seg.dim { opacity: .07 !important; }
 
 /* stations */
 .station { cursor: pointer; --c: #888; transition: opacity .25s; }

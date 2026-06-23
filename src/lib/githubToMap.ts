@@ -1,9 +1,9 @@
-import type { Line, Station, Edge } from '../types';
-import type { MapData } from './maps';
-import { PLACEHOLDER_DESC, PLACEHOLDER_OWNER, PLACEHOLDER_DASH } from './placeholders';
-import { buildIndexes } from './indexes';
-import { recompute } from './dependencies';
-import { layoutStations, type LayoutNode } from './layout';
+import type { Line, Station, Edge } from '../types.ts';
+import type { MapData } from './maps.ts';
+import { PLACEHOLDER_DESC, PLACEHOLDER_OWNER, PLACEHOLDER_DASH } from './placeholders.ts';
+import { buildIndexes } from './indexes.ts';
+import { recompute } from './dependencies.ts';
+import { layoutStations, type LayoutNode } from './layout.ts';
 
 // Plain-object shapes matching what `gh` returns (subset we rely on). The
 // generator script feeds these straight through; keep this module I/O-free so
@@ -122,6 +122,51 @@ export function splitTitlePrefix(
 /** Uppercase the first character, leaving the rest of the string untouched. */
 function capitalizeFirst(s: string): string {
   return s ? s[0].toUpperCase() + s.slice(1) : s;
+}
+
+/** Result of {@link stripSharedPrefixes} for one name. */
+export interface PrefixStripResult {
+  /** The name with its shared leading words removed (capitalized). */
+  name: string;
+  /** The stripped leading words, to surface as a tag — or null if nothing shared. */
+  tag: string | null;
+}
+
+/**
+ * Collapse leading whole words shared by 2+ names into a tag, shortening labels
+ * that all start the same way (e.g. "Map generation — routing" /
+ * "Map generation — labels" → name "routing"/"labels", tag "Map generation —").
+ *
+ * For each name, picks the LONGEST leading whole-word prefix (always leaving ≥1
+ * remainder word) that is shared, case-insensitively, by at least one other name.
+ * Words are never split mid-word. Pure and order-stable; the returned array is
+ * aligned with the input.
+ */
+export function stripSharedPrefixes(names: string[]): PrefixStripResult[] {
+  const tokens = names.map(n => n.trim().split(/\s+/).filter(Boolean));
+
+  // Count how many names share each leading-word prefix (lowercased key), for
+  // prefix lengths 1..len-1 — never the whole name, so a remainder always exists.
+  const counts = new Map<string, number>();
+  for (const words of tokens) {
+    for (let len = 1; len < words.length; len++) {
+      const key = words.slice(0, len).join(' ').toLowerCase();
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    }
+  }
+
+  return tokens.map(words => {
+    let chosen = 0;
+    for (let len = 1; len < words.length; len++) {
+      const key = words.slice(0, len).join(' ').toLowerCase();
+      if ((counts.get(key) ?? 0) >= 2) chosen = len;
+    }
+    if (chosen === 0) return { name: words.join(' '), tag: null };
+    return {
+      name: capitalizeFirst(words.slice(chosen).join(' ')),
+      tag: words.slice(0, chosen).join(' '),
+    };
+  });
 }
 
 /**
@@ -526,7 +571,16 @@ export function githubToMapReport(input: GithubToMapInput): GithubToMapResult {
   }
   const layout = layoutStations(layoutNodes, layoutPrereqs);
 
-  const stations: Station[] = includedIssues.map(iss => {
+  // Base name per issue (after any prefix→line stripping), then collapse leading
+  // words shared across issues into a tag so labels stay short (#4).
+  const baseNames = includedIssues.map(iss =>
+    inKeptGroup(iss.number)
+      ? capitalizeFirst(restByNumber.get(iss.number)!)
+      : iss.title,
+  );
+  const strippedNames = stripSharedPrefixes(baseNames);
+
+  const stations: Station[] = includedIssues.map((iss, i) => {
     const stationId = stationIdByNumber.get(iss.number)!;
     const lineId = lineIdByNumber.get(iss.number)!;
     const { col, row, lp } = layout[stationId];
@@ -547,16 +601,13 @@ export function githubToMapReport(input: GithubToMapInput): GithubToMapResult {
       }
     }
 
-    // Tags = labels minus those consumed as signals (status/estimate).
-    const tags = labels.map(l => l.name).filter(name => !isSignalLabel(name));
+    // Tags = labels minus those consumed as signals (status/estimate). A shared
+    // leading-word prefix collapsed off the name (#4) is surfaced as a tag too.
+    const labelTags = labels.map(l => l.name).filter(name => !isSignalLabel(name));
+    const { name, tag: prefixTag } = strippedNames[i];
+    const tags = prefixTag ? [prefixTag, ...labelTags] : labelTags;
 
     const due = iss.milestone ? dueByMilestone.get(iss.milestone.title) : null;
-
-    // For a member of a kept prefix group, strip the shared prefix and
-    // capitalize the remainder (it's redundant once the line carries the name).
-    const name = inKeptGroup(iss.number)
-      ? capitalizeFirst(restByNumber.get(iss.number)!)
-      : iss.title;
 
     return {
       id: stationId,

@@ -4,6 +4,7 @@ import { recompute } from '../lib/dependencies';
 import { slugify, placeNewStation } from '../lib/placement';
 import { lineIdFromName, normalizeShort } from '../lib/lines';
 import { PLACEHOLDER_DESC, PLACEHOLDER_OWNER, PLACEHOLDER_DASH } from '../lib/placeholders';
+import type { MapRole } from '../data/mapsRepo';
 
 export interface PersistedState {
   project: Project;
@@ -12,10 +13,24 @@ export interface PersistedState {
   edges: Edge[];
 }
 
+/**
+ * A store is read-only when the caller is a Viewer share OR the map is a GitHub
+ * mirror (read-only for everyone, owner included — migration 0006). A read-only
+ * store drops mutating actions, never autosaves, and instead applies live server
+ * updates via SET_DATA. Owner/Editor of a non-mirror map remain editable.
+ */
+export function resolveReadOnly(role: MapRole, isMirror: boolean): boolean {
+  return role === 'viewer' || isMirror;
+}
+
 export interface StoreState extends PersistedState {
   selectedId: string | null;
   highlightLine: string | null;
   theme: 'light' | 'dark';
+  // Per-viewer label rotation in degrees (0 = horizontal, 45 = subway-style).
+  // A private display preference like `theme`, not saved map content — it is
+  // persisted per-map in localStorage so it works on read-only mirrors. ADR 0003.
+  labelAngle: number;
   modalOpen: boolean;
   modalOpenCount: number;
   modalMode: 'create' | 'edit';
@@ -27,6 +42,7 @@ export type Action =
   | { type: 'OPEN_DETAIL'; id: string }
   | { type: 'CLOSE_DETAIL' }
   | { type: 'DO_ACTION'; id: string; act: 'start' | 'done' | 'reopen' }
+  | { type: 'SET_DATA'; data: PersistedState }
   | { type: 'SET_HIGHLIGHT_LINE'; lineId: string | null }
   | { type: 'CREATE_TASK'; data: CreateTaskData }
   | { type: 'UPDATE_TASK'; id: string; data: EditTaskData }
@@ -35,6 +51,7 @@ export type Action =
   | { type: 'UPDATE_LINE'; id: string; data: LineData }
   | { type: 'DELETE_LINE'; id: string }
   | { type: 'SET_THEME'; theme: 'light' | 'dark' }
+  | { type: 'SET_LABEL_ANGLE'; angle: number }
   | { type: 'OPEN_MODAL'; preset?: { line?: string; prereqs?: string[] } }
   | { type: 'OPEN_EDIT_MODAL'; id: string }
   | { type: 'CLOSE_MODAL' };
@@ -125,6 +142,31 @@ export function reducer(state: StoreState, action: Action): StoreState {
       const idx = buildIndexes(updated, state.lines, state.edges);
       const recomputed = recompute(updated, idx.prereqs);
       return { ...state, stations: recomputed };
+    }
+
+    case 'SET_DATA': {
+      // Replace the whole persisted blob in place — used when a read-only store
+      // (mirror / Viewer) receives a live server update over Realtime. The
+      // payload is already settled server-side, so we don't recompute; we just
+      // keep the current selection/highlight when they still resolve.
+      const { data } = action;
+      const selectedId =
+        state.selectedId && data.stations.some(s => s.id === state.selectedId)
+          ? state.selectedId
+          : null;
+      const highlightLine =
+        state.highlightLine && data.lines.some(l => l.id === state.highlightLine)
+          ? state.highlightLine
+          : null;
+      return {
+        ...state,
+        project: data.project,
+        lines: data.lines,
+        stations: data.stations,
+        edges: data.edges,
+        selectedId,
+        highlightLine,
+      };
     }
 
     case 'SET_HIGHLIGHT_LINE':
@@ -323,6 +365,12 @@ export function reducer(state: StoreState, action: Action): StoreState {
 
     case 'SET_THEME':
       return { ...state, theme: action.theme };
+
+    case 'SET_LABEL_ANGLE':
+      // View-only preference (like SET_THEME): lives in client state, never in
+      // the saved map, so it is NOT a MUTATING_ACTION and works on read-only
+      // mirrors. projectStore persists it per-map to localStorage.
+      return { ...state, labelAngle: action.angle };
 
     case 'OPEN_MODAL':
       return { ...state, modalOpen: true, modalOpenCount: state.modalOpenCount + 1, modalMode: 'create', editId: null, modalPreset: action.preset || null };

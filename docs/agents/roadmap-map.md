@@ -34,8 +34,8 @@ unit-tested. The script fetches, via `gh`:
   `number,title,state,milestone,body`.
 - **Milestones** — the REST API (`gh api repos/{owner}/{repo}/milestones`), in
   creation order, which fixes a deterministic line order.
-- **Relationships** — native sub-issue and `blocked by` links via `gh api graphql`
-  (see below).
+- **Relationships** — native sub-issue links via `gh api graphql` and native
+  `blocked by` dependencies via the REST dependencies endpoint (see below).
 
 ## Mapping conventions
 
@@ -73,14 +73,28 @@ Lines are derived in three tiers, in this order:
 
 One line per station — no interchanges in v1.
 
+### Shared title prefixes → tags
+
+Independently of the line tiers above, after names are settled the generator
+collapses any **leading whole words shared by 2 or more station names** into a
+**tag**: the shared words are stripped from each name (and surfaced as a tag in the
+station's detail panel), so long titles that all start the same way don't overlap
+on the map. The longest shared leading prefix wins, matching is case-insensitive,
+and a remainder word is always left behind (a name is never reduced to nothing).
+This complements the prefix→line tier — a prefix that didn't form a line can still
+become a tag.
+
 ### Dependencies → edges
 
 Edge direction is "prereq → dependent": the prereq must be `done` before the
 dependent unlocks. Pairs are sourced, then deduped, from:
 
-1. **Native links** fetched via `gh api graphql`:
-   - **Sub-issue** — the child is the prereq, the parent is the dependent.
-   - **blocked by** — the blocking issue is the prereq, this issue is the dependent.
+1. **Native links**:
+   - **Sub-issue** (via `gh api graphql`) — the child is the prereq, the parent is
+     the dependent, so a parent can't close until its children do.
+   - **blocked by** (via the REST dependencies endpoint,
+     `issues/{n}/dependencies/blocked_by`, one call per issue) — the blocking issue
+     is the prereq, this issue is the dependent.
 2. **Body-text fallback** — `Depends on #N` / `Blocked by #N` parsed out of the
    issue body (comma- or space-separated `#N` lists are supported).
 
@@ -106,18 +120,24 @@ Deterministic topological layout: a station's column tracks its depth in the
 dependency graph; rows are packed per line. Re-running the generator on unchanged
 inputs produces an unchanged map, so diffs stay meaningful.
 
-## The `gh api graphql` relationship query
+## The native relationship queries
 
-Native sub-issue / blocked-by links are not on the `gh issue list` JSON surface, so
-the script issues a GraphQL query (`gh api graphql`) against
-`repository(owner, name).issues`, paginating 100 at a time and reading each issue's
-`subIssues` (and, where the host schema exposes it, `blocked by`) nodes. It flattens
-those into plain `{ prereq, dependent }` pairs.
+Native links are not on the `gh issue list` JSON surface, so the script fetches them
+separately and flattens both into plain `{ prereq, dependent }` pairs:
 
-This step is **best-effort**: if the GraphQL field is unavailable on the host, the
+- **Sub-issues** — a GraphQL query (`gh api graphql`) against
+  `repository(owner, name).issues`, paginating 100 at a time and reading each
+  issue's `subIssues` nodes.
+- **Blocked-by** — the REST dependencies endpoint
+  (`gh api repos/{owner}/{repo}/issues/{n}/dependencies/blocked_by`), one call per
+  issue. (An earlier version declared a GraphQL `blockedBy` field but never actually
+  requested it, so native blocked-by links were silently dropped — hence the move to
+  the REST endpoint.)
+
+Both steps are **best-effort**: if a field/endpoint is unavailable on the host, the
 script warns on stdout and falls back to the `Depends on #N` / `Blocked by #N`
 body-text edges. A run that prints that warning is not a failure — it just means
-edges came only from issue bodies.
+edges came only from the other sources.
 
 ## Reading stdout
 

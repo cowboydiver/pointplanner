@@ -1,4 +1,4 @@
-import type { LabelPlacement } from '../types';
+import type { LabelPlacement } from '../types.ts';
 
 /**
  * Minimal node shape the layout cares about. Callers pass stations in a stable
@@ -81,7 +81,7 @@ export function layoutStations(
   // Within a line band we prefer the band row, then fan outward (band+1, band+2,
   // …) so a line's stations spread across rows as the column fills up.
   const occupied = new Set<string>(); // `${col},${row}`
-  const result: Record<string, LayoutResult> = {};
+  const pos = new Map<string, { col: number; row: number }>();
 
   for (const n of nodes) {
     const col = colById.get(n.id) ?? 0;
@@ -91,12 +91,140 @@ export function layoutStations(
     while (occupied.has(`${col},${row}`)) row += 1;
 
     occupied.add(`${col},${row}`);
+    pos.set(n.id, { col, row });
+  }
+
+  // ---- 4. Clearance: bump stations off any unrelated edge's straight run. ----
+  // Distinct line bands already keep different lines on different rows (so their
+  // horizontal runs don't overlap); this pass fixes the remaining case the user
+  // hit — a line passing straight through an unrelated station — by moving the
+  // offending station down to a clear row. The map may grow taller, which is fine.
+  spreadForClearance(nodes, nodeIds, prereqs, pos, occupied);
+
+  // ---- 5. Materialize results with the seed label-placement heuristic. ----
+  const result: Record<string, LayoutResult> = {};
+  for (const n of nodes) {
+    const p = pos.get(n.id)!;
     result[n.id] = {
-      col,
-      row,
-      lp: row >= 3 ? 'bottom' : 'top',
+      col: p.col,
+      row: p.row,
+      lp: p.row >= 3 ? 'bottom' : 'top',
     };
   }
 
   return result;
+}
+
+/** A station-to-station dependency edge, derived from the prereq graph. */
+interface LayoutEdge {
+  from: string;
+  to: string;
+  /** Diagonal-first flag, mirroring `resolveRouting` in routing.ts. */
+  df: boolean;
+}
+
+/**
+ * The interior grid cells an edge's *straight run* passes through, endpoints
+ * excluded. A 45° transit edge is a short diagonal stub plus one straight run;
+ * the straight run is the part that visibly crosses intermediate stations:
+ *
+ *  - same column  → vertical run down that column;
+ *  - same row     → horizontal run along that row;
+ *  - otherwise    → horizontal run along the target row (df) or source row (!df),
+ *                   matching the bend choice `resolveRouting` makes.
+ *
+ * Mirrors the geometry in routing.ts but works in grid space (col/row), which is
+ * all the layout needs to keep lines off unrelated stations.
+ */
+function edgeRunCells(
+  e: LayoutEdge,
+  pos: Map<string, { col: number; row: number }>,
+): { col: number; row: number }[] {
+  const a = pos.get(e.from)!;
+  const b = pos.get(e.to)!;
+  const cells: { col: number; row: number }[] = [];
+  if (a.col === b.col) {
+    const lo = Math.min(a.row, b.row);
+    const hi = Math.max(a.row, b.row);
+    for (let r = lo + 1; r < hi; r++) cells.push({ col: a.col, row: r });
+    return cells;
+  }
+  const runRow = a.row === b.row ? a.row : e.df ? b.row : a.row;
+  const lo = Math.min(a.col, b.col);
+  const hi = Math.max(a.col, b.col);
+  for (let c = lo + 1; c < hi; c++) cells.push({ col: c, row: runRow });
+  return cells;
+}
+
+/**
+ * Iteratively move stations off any unrelated edge's straight run. Each pass
+ * rebuilds the run map from current positions (so a move that shifts an edge is
+ * accounted for), finds the first blocked station in node order, and slides it
+ * down to the next row that is neither occupied nor on an unrelated run. Bounded
+ * and order-stable: identical input always yields identical output.
+ */
+function spreadForClearance(
+  nodes: LayoutNode[],
+  nodeIds: Set<string>,
+  prereqs: Record<string, string[]>,
+  pos: Map<string, { col: number; row: number }>,
+  occupied: Set<string>,
+): void {
+  // Edges (station→station) + their df flag, mirroring resolveRouting. Degrees
+  // (hence df) depend only on graph shape, so they're computed once.
+  const edges: LayoutEdge[] = [];
+  const inDeg: Record<string, number> = {};
+  const outDeg: Record<string, number> = {};
+  for (const n of nodes) {
+    for (const p of prereqs[n.id] || []) {
+      if (!nodeIds.has(p) || p === n.id) continue;
+      inDeg[n.id] = (inDeg[n.id] || 0) + 1;
+      outDeg[p] = (outDeg[p] || 0) + 1;
+      edges.push({ from: p, to: n.id, df: false });
+    }
+  }
+  for (const e of edges) {
+    const targetIsMerge = (inDeg[e.to] || 0) > 1;
+    const sourceIsBranch = (outDeg[e.from] || 0) > 1;
+    e.df = !(targetIsMerge && !sourceIsBranch);
+  }
+
+  // True when some edge NOT incident to `nodeId` runs through (col,row).
+  const blockedAt = (
+    runs: Map<string, LayoutEdge[]>,
+    col: number,
+    row: number,
+    nodeId: string,
+  ): boolean =>
+    (runs.get(`${col},${row}`) || []).some(e => e.from !== nodeId && e.to !== nodeId);
+
+  const cap = nodes.length * 8 + 16;
+  for (let iter = 0; iter < cap; iter++) {
+    // Rebuild the run map from current positions.
+    const runs = new Map<string, LayoutEdge[]>();
+    for (const e of edges) {
+      for (const c of edgeRunCells(e, pos)) {
+        const key = `${c.col},${c.row}`;
+        const list = runs.get(key);
+        if (list) list.push(e);
+        else runs.set(key, [e]);
+      }
+    }
+
+    // First station sitting on an unrelated run (stable node order).
+    const victim = nodes.find(n => {
+      const p = pos.get(n.id)!;
+      return blockedAt(runs, p.col, p.row, n.id);
+    });
+    if (!victim) return; // all clear
+
+    const p = pos.get(victim.id)!;
+    occupied.delete(`${p.col},${p.row}`);
+    let row = p.row + 1;
+    while (occupied.has(`${p.col},${row}`) || blockedAt(runs, p.col, row, victim.id)) {
+      row += 1;
+    }
+    occupied.add(`${p.col},${row}`);
+    pos.set(victim.id, { col: p.col, row });
+  }
 }

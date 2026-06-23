@@ -50,9 +50,15 @@ I/O-bearing modules that talk to Supabase live here, kept separate from the pure
 |---|---|
 | `seed.ts` | The sample "Q3 Product Launch" project used to seed a new account's demo map |
 | `supabase.ts` | The single `supabase-js` client (reads `VITE_SUPABASE_*` env) + `isSupabaseConfigured()` |
-| `mapsRepo.ts` | Cloud data-access layer over Supabase (maps + shares CRUD, role resolution, version-guarded saves) |
+| `mapsRepo.ts` | Cloud data-access layer over Supabase (maps + shares CRUD, role resolution, version-guarded saves; mirror surfacing + connect-a-repo Edge Function wrappers) |
 
 SQL migrations live in `supabase/migrations/` (applied by a human, not the app). Provisioning, API keys (the **publishable** key — not the legacy `anon` key), RLS, and auth config are documented in `docs/supabase-setup.md`.
+
+### GitHub-mirror maps & Edge Functions (`supabase/functions/`)
+
+A map can be a **read-only mirror** of a GitHub repo's issues (`maps.is_mirror`, migration `0006`), kept live for all viewers. The store sets `readOnly = role === 'viewer' || isMirror` (`resolveReadOnly` in `reducer.ts`), subscribes read-only maps to Supabase **Realtime** and applies pushed updates via the `SET_DATA` action, and shows a `MirrorBanner`. Mirror edits are blocked client-side (no autosave) and server-side (the `0008` trigger).
+
+The sync backend is **Deno Edge Functions** (excluded from `tsc`/ESLint; the pure helpers are vitest-tested under `_shared/*.test.ts`). They reuse the pure `githubToMap` transform from `src/lib/` and a single **GitHub App** for webhooks + private reads + repo listing. Setup (App registration, secrets, migrations `0006`–`0009`, deploy, `VITE_GITHUB_*` env) is documented in `docs/github-app-setup.md`.
 
 ### Store actions
 

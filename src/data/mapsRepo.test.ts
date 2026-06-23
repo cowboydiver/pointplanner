@@ -18,11 +18,13 @@ function makeBuilder(result: { data: unknown; error: unknown }) {
 
 const fromMock = vi.fn();
 const getUserMock = vi.fn();
+const invokeMock = vi.fn();
 
 vi.mock('./supabase', () => ({
   supabase: {
     from: (...args: unknown[]) => fromMock(...args),
     auth: { getUser: (...args: unknown[]) => getUserMock(...args) },
+    functions: { invoke: (...args: unknown[]) => invokeMock(...args) },
   },
 }));
 
@@ -35,6 +37,9 @@ import {
   listShares,
   addShare,
   removeShare,
+  getMapSource,
+  listConnectableRepos,
+  connectRepo,
 } from './mapsRepo';
 import { createBlankMapData } from '../lib/maps';
 
@@ -56,6 +61,7 @@ function routeFrom(builders: Record<string, ReturnType<typeof makeBuilder>>) {
 beforeEach(() => {
   fromMock.mockReset();
   getUserMock.mockReset();
+  invokeMock.mockReset();
   signInAs('me', 'me@example.com');
 });
 
@@ -74,8 +80,27 @@ describe('listMaps', () => {
 
     const metas = await listMaps();
     expect(metas).toEqual([
-      { id: 'a', name: 'Alpha', role: 'owner' },
-      { id: 'b', name: 'Beta', role: 'viewer' },
+      { id: 'a', name: 'Alpha', role: 'owner', isMirror: false },
+      { id: 'b', name: 'Beta', role: 'viewer', isMirror: false },
+    ]);
+  });
+
+  it('surfaces isMirror from the row flag', async () => {
+    routeFrom({
+      maps: makeBuilder({
+        data: [
+          { id: 'a', name: 'Alpha', owner: 'me', is_mirror: true },
+          { id: 'b', name: 'Beta', owner: 'me', is_mirror: false },
+        ],
+        error: null,
+      }),
+      map_shares: makeBuilder({ data: [], error: null }),
+    });
+
+    const metas = await listMaps();
+    expect(metas).toEqual([
+      { id: 'a', name: 'Alpha', role: 'owner', isMirror: true },
+      { id: 'b', name: 'Beta', role: 'owner', isMirror: false },
     ]);
   });
 
@@ -89,7 +114,7 @@ describe('listMaps', () => {
     });
 
     const metas = await listMaps();
-    expect(metas).toEqual([{ id: 'b', name: 'Beta', role: 'editor' }]);
+    expect(metas).toEqual([{ id: 'b', name: 'Beta', role: 'editor', isMirror: false }]);
   });
 
   it('throws on error', async () => {
@@ -105,7 +130,16 @@ describe('loadMap', () => {
       maps: makeBuilder({ data: { id: 'm1', name: 'X', data, version: 7, owner: 'me' }, error: null }),
     });
     const rec = await loadMap('m1');
-    expect(rec).toEqual({ id: 'm1', name: 'X', data, version: 7, role: 'owner' });
+    expect(rec).toEqual({ id: 'm1', name: 'X', data, version: 7, role: 'owner', isMirror: false });
+  });
+
+  it('surfaces isMirror true for a mirror map (read-only even for the owner)', async () => {
+    const data = createBlankMapData('X');
+    routeFrom({
+      maps: makeBuilder({ data: { id: 'm1', name: 'X', data, version: 7, owner: 'me', is_mirror: true }, error: null }),
+    });
+    const rec = await loadMap('m1');
+    expect(rec).toEqual({ id: 'm1', name: 'X', data, version: 7, role: 'owner', isMirror: true });
   });
 
   it('returns role "viewer" when not the owner but a viewer share exists', async () => {
@@ -115,7 +149,7 @@ describe('loadMap', () => {
       map_shares: makeBuilder({ data: [{ map_id: 'm1', role: 'viewer' }], error: null }),
     });
     const rec = await loadMap('m1');
-    expect(rec).toEqual({ id: 'm1', name: 'X', data, version: 7, role: 'viewer' });
+    expect(rec).toEqual({ id: 'm1', name: 'X', data, version: 7, role: 'viewer', isMirror: false });
   });
 
   it('returns role "editor" when not the owner but an editor share exists', async () => {
@@ -127,7 +161,7 @@ describe('loadMap', () => {
       map_shares: makeBuilder({ data: [{ map_id: 'm1', role: 'editor' }], error: null }),
     });
     const rec = await loadMap('m1');
-    expect(rec).toEqual({ id: 'm1', name: 'X', data, version: 7, role: 'editor' });
+    expect(rec).toEqual({ id: 'm1', name: 'X', data, version: 7, role: 'editor', isMirror: false });
   });
 
   it('returns null when the row is missing', async () => {
@@ -271,5 +305,72 @@ describe('sharing', () => {
     expect(builder.delete).toHaveBeenCalled();
     expect(builder.eq).toHaveBeenCalledWith('map_id', 'm1');
     expect(builder.eq).toHaveBeenCalledWith('email', 'person@example.com');
+  });
+});
+
+describe('getMapSource', () => {
+  it('maps a sources row to camelCased MapSource', async () => {
+    const builder = makeBuilder({
+      data: {
+        provider: 'github',
+        repo_owner: 'cowboydiver',
+        repo_name: 'pointplanner',
+        filter: null,
+        last_synced_at: '2026-06-21T10:00:00Z',
+        last_sync_status: 'ok',
+        last_sync_error: null,
+      },
+      error: null,
+    });
+    fromMock.mockReturnValue(builder);
+
+    const source = await getMapSource('m1');
+    expect(source).toEqual({
+      provider: 'github',
+      repoOwner: 'cowboydiver',
+      repoName: 'pointplanner',
+      filter: null,
+      lastSyncedAt: '2026-06-21T10:00:00Z',
+      lastSyncStatus: 'ok',
+      lastSyncError: null,
+    });
+    expect(builder.eq).toHaveBeenCalledWith('map_id', 'm1');
+  });
+
+  it('returns null for a non-mirror map (no sources row)', async () => {
+    fromMock.mockReturnValue(makeBuilder({ data: null, error: null }));
+    expect(await getMapSource('plain')).toBeNull();
+  });
+});
+
+describe('GitHub mirror', () => {
+  it('listConnectableRepos returns the function payload', async () => {
+    const payload = {
+      connected: true,
+      repos: [{ installationId: 1, repoId: 2, owner: 'o', name: 'r', fullName: 'o/r', private: true }],
+    };
+    invokeMock.mockResolvedValue({ data: payload, error: null });
+    const result = await listConnectableRepos();
+    expect(result).toEqual(payload);
+    expect(invokeMock).toHaveBeenCalledWith('github-repos', { body: {} });
+  });
+
+  it('listConnectableRepos throws on a function error', async () => {
+    invokeMock.mockResolvedValue({ data: null, error: { message: 'boom' } });
+    await expect(listConnectableRepos()).rejects.toBeTruthy();
+  });
+
+  it('connectRepo forwards params and returns the new map meta', async () => {
+    invokeMock.mockResolvedValue({ data: { map: { id: 'm9', name: 'o/r' } }, error: null });
+    const meta = await connectRepo({ installationId: 1, repoId: 2, filter: 'ready' });
+    expect(meta).toEqual({ id: 'm9', name: 'o/r' });
+    expect(invokeMock).toHaveBeenCalledWith('connect-repo', {
+      body: { installationId: 1, repoId: 2, filter: 'ready' },
+    });
+  });
+
+  it('connectRepo throws on a function error', async () => {
+    invokeMock.mockResolvedValue({ data: null, error: { message: 'repo_not_accessible' } });
+    await expect(connectRepo({ installationId: 1, repoId: 2 })).rejects.toBeTruthy();
   });
 });

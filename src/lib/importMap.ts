@@ -110,8 +110,13 @@ function normalize(value: Record<string, unknown>): MapData {
     return edge;
   });
 
+  const projectOut: MapData['project'] = {
+    name: asString(project.name),
+    subtitle: asString(project.subtitle),
+  };
+
   return {
-    project: { name: asString(project.name), subtitle: asString(project.subtitle) },
+    project: projectOut,
     lines,
     stations,
     edges,

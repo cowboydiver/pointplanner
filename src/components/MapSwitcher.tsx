@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useMapRegistry } from '../store/mapRegistry';
 import { parseMapFile } from '../lib/importMap';
 import { ConfirmDialog } from './ConfirmDialog';
+import { ConnectRepoModal } from './ConnectRepoModal';
 
 export function MapSwitcher() {
   const {
@@ -16,9 +17,28 @@ export function MapSwitcher() {
   } = useMapRegistry();
 
   const [open, setOpen] = useState(false);
+  // Returning from the GitHub App authorize redirect lands here with
+  // `?github=connected`; open the connect modal (now authorized) straight away.
+  const [connectOpen, setConnectOpen] = useState(
+    () => new URLSearchParams(window.location.search).get('github') === 'connected',
+  );
   const [pendingDelete, setPendingDelete] = useState<{ id: string; name: string } | null>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Strip the `github` round-trip param so a refresh doesn't reopen the modal.
+  // Side-effect only (no setState) — the initial open state is derived above.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (!params.has('github')) return;
+    params.delete('github');
+    const query = params.toString();
+    window.history.replaceState(
+      {},
+      '',
+      window.location.pathname + (query ? `?${query}` : '') + window.location.hash,
+    );
+  }, []);
 
   // Close on outside click and Escape
   useEffect(() => {
@@ -151,6 +171,7 @@ export function MapSwitcher() {
                 >
                   {isActive && <span className="map-menu-check" aria-hidden="true">✓</span>}
                   <span className="map-menu-item-label">{m.name}</span>
+                  {m.isMirror && <span className="map-menu-shared-badge">Repo</span>}
                   {!isOwned && <span className="map-menu-shared-badge">Shared</span>}
                 </button>
                 {isOwned && (
@@ -202,9 +223,18 @@ export function MapSwitcher() {
             >
               ↥ Import map…
             </button>
+            <button
+              className="map-menu-new"
+              type="button"
+              onClick={() => { setConnectOpen(true); setOpen(false); }}
+            >
+              ↗ Connect a repo…
+            </button>
           </div>
         </div>
       )}
+
+      {connectOpen && <ConnectRepoModal onClose={() => setConnectOpen(false)} />}
 
       {pendingDelete && (
         <ConfirmDialog

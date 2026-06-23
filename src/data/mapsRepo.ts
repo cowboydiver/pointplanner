@@ -12,6 +12,9 @@ export type MapRole = 'owner' | 'editor' | 'viewer';
 
 export interface MapListItem extends MapMeta {
   role: MapRole;
+  // True for a GitHub-mirror map: read-only for everyone (owner included), its
+  // `data` rewritten server-side from a repo's issues. See migration 0006.
+  isMirror: boolean;
 }
 
 export interface ShareEntry {
@@ -25,6 +28,38 @@ export interface MapRecord {
   data: MapData;
   version: number;
   role: MapRole;
+  isMirror: boolean;
+}
+
+/** A repo the signed-in user can mirror, returned by the github-repos function. */
+export interface ConnectableRepo {
+  installationId: number;
+  repoId: number;
+  owner: string;
+  name: string;
+  fullName: string;
+  private: boolean;
+}
+
+/** Result of listing connectable repos: `connected` is false until the user has
+ * authorized the GitHub App (the caller then kicks off the authorize redirect).
+ * `error` is set when the user IS connected but the repo fetch failed transiently
+ * (e.g. a GitHub 5xx/rate-limit) — the caller should offer a retry, not re-auth. */
+export interface ConnectableReposResult {
+  connected: boolean;
+  repos: ConnectableRepo[];
+  error?: string;
+}
+
+/** Origin + last-sync status of a mirror map (migration 0006), owner-only. */
+export interface MapSource {
+  provider: string;
+  repoOwner: string;
+  repoName: string;
+  filter: string | null;
+  lastSyncedAt: string | null;
+  lastSyncStatus: string | null;
+  lastSyncError: string | null;
 }
 
 export interface SaveResult {
@@ -36,6 +71,7 @@ export interface SaveResult {
 
 const TABLE = 'maps';
 const SHARES_TABLE = 'map_shares';
+const SOURCES_TABLE = 'map_sources';
 
 /**
  * The current user's id + lowercased email, used to resolve each readable map's
@@ -69,7 +105,7 @@ async function shareRoleLookup(): Promise<Record<string, MapRole>> {
 export async function listMaps(): Promise<MapListItem[]> {
   const { data, error } = await supabase
     .from(TABLE)
-    .select('id, name, owner')
+    .select('id, name, owner, is_mirror')
     .order('updated_at', { ascending: false });
 
   if (error) throw error;
@@ -77,17 +113,18 @@ export async function listMaps(): Promise<MapListItem[]> {
   const { uid } = await currentIdentity();
   const shares = await shareRoleLookup();
 
-  return ((data ?? []) as { id: string; name: string; owner: string }[]).map(row => ({
+  return ((data ?? []) as { id: string; name: string; owner: string; is_mirror?: boolean }[]).map(row => ({
     id: row.id,
     name: row.name,
     role: row.owner === uid ? 'owner' : (shares[row.id] ?? 'viewer'),
+    isMirror: Boolean(row.is_mirror),
   }));
 }
 
 export async function loadMap(id: string): Promise<MapRecord | null> {
   const { data, error } = await supabase
     .from(TABLE)
-    .select('id, name, data, version, owner')
+    .select('id, name, data, version, owner, is_mirror')
     .eq('id', id)
     .maybeSingle();
 
@@ -109,6 +146,31 @@ export async function loadMap(id: string): Promise<MapRecord | null> {
     data: data.data as MapData,
     version: data.version as number,
     role,
+    isMirror: Boolean(data.is_mirror),
+  };
+}
+
+/**
+ * The mirror origin + last-sync status for a map (owner-only via RLS). Returns
+ * null for a non-mirror map (no `map_sources` row) or when there is no session.
+ */
+export async function getMapSource(mapId: string): Promise<MapSource | null> {
+  const { data, error } = await supabase
+    .from(SOURCES_TABLE)
+    .select('provider, repo_owner, repo_name, filter, last_synced_at, last_sync_status, last_sync_error')
+    .eq('map_id', mapId)
+    .maybeSingle();
+
+  if (error) throw error;
+  if (!data) return null;
+  return {
+    provider: data.provider as string,
+    repoOwner: data.repo_owner as string,
+    repoName: data.repo_name as string,
+    filter: (data.filter as string | null) ?? null,
+    lastSyncedAt: (data.last_synced_at as string | null) ?? null,
+    lastSyncStatus: (data.last_sync_status as string | null) ?? null,
+    lastSyncError: (data.last_sync_error as string | null) ?? null,
   };
 }
 
@@ -168,6 +230,54 @@ export async function saveMap(
   if (error) return { ok: false, reason: 'error', message: error.message };
   if (!rows || (rows as unknown[]).length === 0) return { ok: false, reason: 'stale' };
   return { ok: true, version: nextVersion };
+}
+
+// --- GitHub mirror (connect-a-repo) -----------------------------------------
+// These go through Supabase Edge Functions (service-role GitHub access lives
+// server-side; the browser never sees an installation token). The functions are
+// documented in docs/github-app-setup.md.
+
+/**
+ * Begin the GitHub App user-authorization redirect. Sends the user to GitHub to
+ * grant the App access; GitHub returns them to the `github-oauth-callback`
+ * function (which stores their token and redirects back here). The current
+ * Supabase access token rides in `state` so the callback knows which user to
+ * bind the GitHub token to.
+ */
+export async function startGithubAuthorize(): Promise<void> {
+  const clientId = import.meta.env.VITE_GITHUB_CLIENT_ID;
+  const callbackUrl = import.meta.env.VITE_GITHUB_CALLBACK_URL;
+  if (!clientId || !callbackUrl) {
+    throw new Error('GitHub App is not configured (VITE_GITHUB_CLIENT_ID / VITE_GITHUB_CALLBACK_URL).');
+  }
+  const { data } = await supabase.auth.getSession();
+  const state = data.session?.access_token ?? '';
+  const url =
+    `https://github.com/login/oauth/authorize?client_id=${encodeURIComponent(clientId)}` +
+    `&redirect_uri=${encodeURIComponent(callbackUrl)}&state=${encodeURIComponent(state)}`;
+  window.location.href = url;
+}
+
+/** List the repos the signed-in user can mirror (github-repos function). */
+export async function listConnectableRepos(): Promise<ConnectableReposResult> {
+  const { data, error } = await supabase.functions.invoke('github-repos', { body: {} });
+  if (error) throw error;
+  return data as ConnectableReposResult;
+}
+
+/**
+ * Create a read-only mirror map from a repo the user can access (connect-repo
+ * function). Returns the new map's meta; the registry then adds it as an
+ * owned, mirror item and makes it active.
+ */
+export async function connectRepo(params: {
+  installationId: number;
+  repoId: number;
+  filter?: string | null;
+}): Promise<MapMeta> {
+  const { data, error } = await supabase.functions.invoke('connect-repo', { body: params });
+  if (error) throw error;
+  return (data as { map: MapMeta }).map;
 }
 
 // --- Sharing (issue #19) ----------------------------------------------------

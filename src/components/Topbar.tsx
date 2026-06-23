@@ -6,7 +6,7 @@ import { MapSwitcher } from './MapSwitcher';
 import { ShareModal } from './ShareModal';
 
 export function Topbar() {
-  const { state, dispatch, readOnly } = useStore();
+  const { state, dispatch, readOnly, isMirror } = useStore();
   const { signOut } = useAuth();
   const { activeMeta } = useMapRegistry();
   const [shareOpen, setShareOpen] = useState(false);
@@ -20,7 +20,9 @@ export function Topbar() {
         PointPlanner
       </div>
       <MapSwitcher />
-      {readOnly && <span className="pill">Viewer (read-only)</span>}
+      {readOnly && (
+        <span className="pill">{isMirror ? 'Repo mirror (read-only)' : 'Viewer (read-only)'}</span>
+      )}
       <div className="spacer" />
       <button className="tb-btn" type="button">
         Board view
@@ -31,6 +33,22 @@ export function Topbar() {
         onClick={() => dispatch({ type: 'SET_THEME', theme: state.theme === 'dark' ? 'light' : 'dark' })}
       >
         {state.theme === 'dark' ? '☀ Light' : '☾ Dark'}
+      </button>
+      {/* Label rotation is a per-viewer display preference, so it stays available
+          even on read-only mirrors / Viewer shares (unlike content edits). */}
+      <button
+        className="tb-btn"
+        type="button"
+        aria-pressed={state.labelAngle !== 0}
+        title="Rotate all station labels"
+        onClick={() =>
+          dispatch({
+            type: 'SET_LABEL_ANGLE',
+            angle: state.labelAngle === 0 ? 45 : 0,
+          })
+        }
+      >
+        ⤢ Labels {state.labelAngle === 0 ? '0°' : '45°'}
       </button>
       {isOwner && (
         <button

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { reducer, type StoreState } from './reducer';
+import { reducer, resolveReadOnly, type StoreState } from './reducer';
 import type { Line, Station, Edge } from '../types';
 
 const LINES: Line[] = [
@@ -33,6 +33,7 @@ function makeState(): StoreState {
     selectedId: 'c',
     highlightLine: null,
     theme: 'light',
+    labelAngle: 0,
     modalOpen: true,
     modalOpenCount: 1,
     modalMode: 'edit',
@@ -168,5 +169,85 @@ describe('UPDATE_TASK', () => {
     expect(next.edges.some(e => e.from === 'c' && e.to === 'b')).toBe(false);
     expect(next.edges.some(e => e.from === 'b' && e.to === 'b')).toBe(false);
     expect(next.edges.filter(e => e.to === 'b')).toHaveLength(0);
+  });
+});
+
+describe('SET_DATA', () => {
+  it('replaces the whole persisted blob in place', () => {
+    const data = {
+      project: { name: 'New', subtitle: 'live' },
+      lines: [LINES[0]],
+      stations: [station('x', 0, 0, 'available')],
+      edges: [] as Edge[],
+    };
+    const next = reducer(makeState(), { type: 'SET_DATA', data });
+    expect(next.project).toEqual({ name: 'New', subtitle: 'live' });
+    expect(next.stations.map(s => s.id)).toEqual(['x']);
+    expect(next.lines).toEqual([LINES[0]]);
+    expect(next.edges).toEqual([]);
+  });
+
+  it('keeps the selection when it still resolves, clears it otherwise', () => {
+    const base = makeState(); // selectedId 'c'
+    const keep = reducer(base, {
+      type: 'SET_DATA',
+      data: { project: base.project, lines: base.lines, stations: base.stations, edges: base.edges },
+    });
+    expect(keep.selectedId).toBe('c');
+
+    const drop = reducer(base, {
+      type: 'SET_DATA',
+      data: {
+        project: base.project,
+        lines: base.lines,
+        stations: [station('z', 0, 0, 'available')],
+        edges: [],
+      },
+    });
+    expect(drop.selectedId).toBeNull();
+  });
+
+  it('preserves view-only state (theme, modal)', () => {
+    const base = makeState(); // theme light, modalOpen true
+    const next = reducer(base, {
+      type: 'SET_DATA',
+      data: { project: base.project, lines: base.lines, stations: base.stations, edges: base.edges },
+    });
+    expect(next.theme).toBe('light');
+    expect(next.modalOpen).toBe(true);
+  });
+});
+
+describe('SET_LABEL_ANGLE', () => {
+  it('stores the label angle as view-only state, not in the saved project', () => {
+    const next = reducer(makeState(), { type: 'SET_LABEL_ANGLE', angle: 45 });
+    expect(next.labelAngle).toBe(45);
+    // It must not leak into the persisted map content.
+    expect(next.project).not.toHaveProperty('labelAngle');
+    expect(next.project.name).toBe('P');
+    expect(next.project.subtitle).toBe('S');
+  });
+
+  it('can reset the angle back to 0', () => {
+    const rotated = reducer(makeState(), { type: 'SET_LABEL_ANGLE', angle: 45 });
+    const reset = reducer(rotated, { type: 'SET_LABEL_ANGLE', angle: 0 });
+    expect(reset.labelAngle).toBe(0);
+  });
+});
+
+describe('resolveReadOnly', () => {
+  it('is true for a Viewer share regardless of mirror flag', () => {
+    expect(resolveReadOnly('viewer', false)).toBe(true);
+    expect(resolveReadOnly('viewer', true)).toBe(true);
+  });
+
+  it('is true for a mirror even when the caller owns it', () => {
+    expect(resolveReadOnly('owner', true)).toBe(true);
+    expect(resolveReadOnly('editor', true)).toBe(true);
+  });
+
+  it('is false for an editable owner/editor of a non-mirror map', () => {
+    expect(resolveReadOnly('owner', false)).toBe(false);
+    expect(resolveReadOnly('editor', false)).toBe(false);
   });
 });
