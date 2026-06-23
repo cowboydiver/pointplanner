@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { routePoints, pointsToPath, resolveRouting, px, py, PAD_X, PAD_Y, COL, ROW } from './routing';
+import { routePoints, pointsToPath, resolveRouting, resolveDf, px, py, PAD_X, PAD_Y, COL, ROW } from './routing';
 import type { Station, Edge } from '../types';
 
 function makeStation(id: string, col: number, row: number): Station {
@@ -165,5 +165,17 @@ describe('resolveRouting — derives df from geometry + graph shape', () => {
     const edges: Edge[] = [{ from: 'a', to: 'b', line: 'design', df: true }];
     resolveRouting(edges, byId(a, b));
     expect(edges[0].df).toBe(true);
+  });
+});
+
+describe('resolveDf — the single source of the diagonal-first bend rule', () => {
+  it('is straight-first only for a pure converging merge (target merge, source not a branch)', () => {
+    expect(resolveDf(true, false)).toBe(false);
+  });
+
+  it('is diagonal-first otherwise', () => {
+    expect(resolveDf(false, false)).toBe(true); // plain chain link
+    expect(resolveDf(false, true)).toBe(true); // pure fan-out branch
+    expect(resolveDf(true, true)).toBe(true); // merge that is also a branch
   });
 });

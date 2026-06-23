@@ -1,4 +1,5 @@
 import type { LabelPlacement } from '../types.ts';
+import { resolveDf } from './routing.ts';
 
 /**
  * Minimal node shape the layout cares about. Callers pass stations in a stable
@@ -119,7 +120,7 @@ export function layoutStations(
 interface LayoutEdge {
   from: string;
   to: string;
-  /** Diagonal-first flag, mirroring `resolveRouting` in routing.ts. */
+  /** Diagonal-first flag, from the shared `resolveDf` helper in routing.ts. */
   df: boolean;
 }
 
@@ -162,6 +163,11 @@ function edgeRunCells(
  * accounted for), finds the first blocked station in node order, and slides it
  * down to the next row that is neither occupied nor on an unrelated run. Bounded
  * and order-stable: identical input always yields identical output.
+ *
+ * Note: the victim slides strictly downward, so to find clearance this pass can
+ * push a station past its own line band onto a row nominally belonging to another
+ * band. That is an accepted refinement of #7's "pack within the line's band"
+ * rule — keeping a line off an unrelated station wins over strict band fidelity.
  */
 function spreadForClearance(
   nodes: LayoutNode[],
@@ -170,8 +176,9 @@ function spreadForClearance(
   pos: Map<string, { col: number; row: number }>,
   occupied: Set<string>,
 ): void {
-  // Edges (station→station) + their df flag, mirroring resolveRouting. Degrees
-  // (hence df) depend only on graph shape, so they're computed once.
+  // Edges (station→station) + their df flag, via the shared resolveDf helper so
+  // the clearance geometry matches what resolveRouting draws. Degrees (hence df)
+  // depend only on graph shape, so they're computed once.
   const edges: LayoutEdge[] = [];
   const inDeg: Record<string, number> = {};
   const outDeg: Record<string, number> = {};
@@ -184,9 +191,7 @@ function spreadForClearance(
     }
   }
   for (const e of edges) {
-    const targetIsMerge = (inDeg[e.to] || 0) > 1;
-    const sourceIsBranch = (outDeg[e.from] || 0) > 1;
-    e.df = !(targetIsMerge && !sourceIsBranch);
+    e.df = resolveDf((inDeg[e.to] || 0) > 1, (outDeg[e.from] || 0) > 1);
   }
 
   // True when some edge NOT incident to `nodeId` runs through (col,row).
