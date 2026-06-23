@@ -4,6 +4,7 @@ import { recompute } from '../lib/dependencies';
 import { slugify, placeNewStation } from '../lib/placement';
 import { lineIdFromName, normalizeShort } from '../lib/lines';
 import { PLACEHOLDER_DESC, PLACEHOLDER_OWNER, PLACEHOLDER_DASH } from '../lib/placeholders';
+import type { LabelPivot } from '../lib/labelAnglePref';
 import type { MapRole } from '../data/mapsRepo';
 
 export interface PersistedState {
@@ -27,10 +28,12 @@ export interface StoreState extends PersistedState {
   selectedId: string | null;
   highlightLine: string | null;
   theme: 'light' | 'dark';
-  // Per-viewer label rotation in degrees (0 = horizontal, 45 = subway-style).
-  // A private display preference like `theme`, not saved map content — it is
-  // persisted per-map in localStorage so it works on read-only mirrors. ADR 0003.
+  // Per-viewer label rotation in degrees (0 = horizontal, ±45 = subway-style)
+  // and the point the labels pivot about. Both are private display preferences
+  // like `theme`, not saved map content — persisted per-map in localStorage so
+  // they work on read-only mirrors. ADR 0003.
   labelAngle: number;
+  labelPivot: LabelPivot;
   modalOpen: boolean;
   modalOpenCount: number;
   modalMode: 'create' | 'edit';
@@ -52,6 +55,7 @@ export type Action =
   | { type: 'DELETE_LINE'; id: string }
   | { type: 'SET_THEME'; theme: 'light' | 'dark' }
   | { type: 'SET_LABEL_ANGLE'; angle: number }
+  | { type: 'SET_LABEL_PIVOT'; pivot: LabelPivot }
   | { type: 'OPEN_MODAL'; preset?: { line?: string; prereqs?: string[] } }
   | { type: 'OPEN_EDIT_MODAL'; id: string }
   | { type: 'CLOSE_MODAL' };
@@ -371,6 +375,11 @@ export function reducer(state: StoreState, action: Action): StoreState {
       // the saved map, so it is NOT a MUTATING_ACTION and works on read-only
       // mirrors. projectStore persists it per-map to localStorage.
       return { ...state, labelAngle: action.angle };
+
+    case 'SET_LABEL_PIVOT':
+      // View-only preference, same as SET_LABEL_ANGLE: client state only,
+      // persisted per-map to localStorage, allowed on read-only mirrors.
+      return { ...state, labelPivot: action.pivot };
 
     case 'OPEN_MODAL':
       return { ...state, modalOpen: true, modalOpenCount: state.modalOpenCount + 1, modalMode: 'create', editId: null, modalPreset: action.preset || null };

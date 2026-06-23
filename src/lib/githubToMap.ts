@@ -323,9 +323,10 @@ function isSignalLabel(name: string): boolean {
 /**
  * Pure transform: plain GitHub issue/milestone objects → a valid `MapData`.
  *
- * - One open issue = one station (name ← title). A *closed* issue surfaces as a
- *   station only when an open issue depends on it (rendered as a `done` prereq);
- *   closed issues with no open dependent are excluded.
+ * - One open issue = one station (name ← `#<number> <title>`). A *closed* issue
+ *   surfaces as a `done` station only when it is connected (directly or
+ *   transitively, in either direction) to an open issue through the dependency
+ *   graph; a fully-completed component with no open issue is excluded.
  * - Lines are derived in three tiers, in order: each milestone becomes a line
  *   (in milestone order); then milestone-less issues sharing a delimited title
  *   prefix (2+ members) form a line named by that prefix, with the prefix
@@ -392,22 +393,44 @@ export function githubToMapReport(input: GithubToMapInput): GithubToMapResult {
   const acyclicPairs = breakCycles(depPairs, dropped);
 
   // ---- 2. Decide which issues become stations. ----
-  // Every open issue is a station. A closed issue is included only if some open
-  // issue depends on it.
-  const dependentsOfClosed = new Set<number>(); // closed issue numbers referenced by an open dependent
+  // Every open issue is a station. A closed issue is included only when it is
+  // connected — directly or transitively, in either direction — to an open issue
+  // through the dependency graph. This keeps a closed common blocker (and the
+  // closed chains between it and the open work) on the map as `done` stations, so
+  // open stations don't end up isolated when their blocker has been closed. A
+  // fully-completed component with no open issue is left out, so the map isn't
+  // flooded with disconnected done work.
+  const adjacency = new Map<number, number[]>();
+  const link = (a: number, b: number) => {
+    const list = adjacency.get(a);
+    if (list) list.push(b);
+    else adjacency.set(a, [b]);
+  };
   for (const { prereq, dependent } of acyclicPairs) {
-    const prereqIssue = issueByNumber.get(prereq);
-    const dependentIssue = issueByNumber.get(dependent);
-    if (!prereqIssue || !dependentIssue) continue;
-    if (isClosed(prereqIssue.state) && !isClosed(dependentIssue.state)) {
-      dependentsOfClosed.add(prereq);
+    link(prereq, dependent);
+    link(dependent, prereq);
+  }
+  const connectedToOpen = new Set<number>();
+  const frontier: number[] = [];
+  for (const iss of issues) {
+    if (!isClosed(iss.state)) {
+      connectedToOpen.add(iss.number);
+      frontier.push(iss.number);
+    }
+  }
+  while (frontier.length) {
+    const cur = frontier.pop()!;
+    for (const next of adjacency.get(cur) ?? []) {
+      if (!connectedToOpen.has(next)) {
+        connectedToOpen.add(next);
+        frontier.push(next);
+      }
     }
   }
 
-  const includedIssues = issues.filter(iss => {
-    if (!isClosed(iss.state)) return true;
-    return dependentsOfClosed.has(iss.number);
-  });
+  const includedIssues = issues.filter(
+    iss => !isClosed(iss.state) || connectedToOpen.has(iss.number),
+  );
 
   // ---- 2b. Group milestone-less issues by a shared, delimiter-based prefix. ----
   // A prefix shared by 2+ such issues becomes its own line (named verbatim from
@@ -553,8 +576,8 @@ export function githubToMapReport(input: GithubToMapInput): GithubToMapResult {
   for (const { prereq, dependent } of acyclicPairs) {
     const from = stationIdByNumber.get(prereq);
     const to = stationIdByNumber.get(dependent);
-    // Both endpoints must be stations (e.g. a closed prereq with no open
-    // dependent was excluded, so it has no station).
+    // Both endpoints must be stations (e.g. a closed issue in a fully-completed
+    // component was excluded, so it has no station).
     if (!from || !to) continue;
     const edgeKey = `${from}->${to}`;
     if (seenEdge.has(edgeKey)) continue;
@@ -611,7 +634,10 @@ export function githubToMapReport(input: GithubToMapInput): GithubToMapResult {
 
     return {
       id: stationId,
-      name,
+      // Prefix the displayed name with the issue number (e.g. "#42 Title"). Done
+      // last, after prefix→line and shared-word stripping, so those derivations
+      // still see the clean title.
+      name: `#${iss.number} ${name}`,
       lines: [lineId],
       col,
       row,

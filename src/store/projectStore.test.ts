@@ -34,6 +34,7 @@ function makeState(): StoreState {
     highlightLine: null,
     theme: 'light',
     labelAngle: 0,
+    labelPivot: 'center',
     modalOpen: true,
     modalOpenCount: 1,
     modalMode: 'edit',
@@ -232,6 +233,19 @@ describe('SET_LABEL_ANGLE', () => {
     const rotated = reducer(makeState(), { type: 'SET_LABEL_ANGLE', angle: 45 });
     const reset = reducer(rotated, { type: 'SET_LABEL_ANGLE', angle: 0 });
     expect(reset.labelAngle).toBe(0);
+  });
+
+  it('supports the negative preset', () => {
+    const next = reducer(makeState(), { type: 'SET_LABEL_ANGLE', angle: -45 });
+    expect(next.labelAngle).toBe(-45);
+  });
+});
+
+describe('SET_LABEL_PIVOT', () => {
+  it('stores the pivot as view-only state, not in the saved project', () => {
+    const next = reducer(makeState(), { type: 'SET_LABEL_PIVOT', pivot: 'left' });
+    expect(next.labelPivot).toBe('left');
+    expect(next.project).not.toHaveProperty('labelPivot');
   });
 });
 

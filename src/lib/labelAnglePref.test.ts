@@ -1,5 +1,12 @@
 import { describe, it, expect } from 'vitest';
-import { loadLabelAngle, saveLabelAngle, LABEL_ANGLES } from './labelAnglePref';
+import {
+  loadLabelAngle,
+  saveLabelAngle,
+  loadLabelPivot,
+  saveLabelPivot,
+  LABEL_ANGLES,
+  LABEL_PIVOTS,
+} from './labelAnglePref';
 
 /** Minimal in-memory Storage double. */
 function fakeStorage(initial: Record<string, string> = {}): Storage {
@@ -27,6 +34,12 @@ describe('labelAnglePref', () => {
     expect(loadLabelAngle(s, 'map1')).toBe(45);
     // Keyed by map: another map is unaffected.
     expect(loadLabelAngle(s, 'map2')).toBe(0);
+  });
+
+  it('round-trips the negative preset', () => {
+    const s = fakeStorage();
+    saveLabelAngle(s, 'map1', -45);
+    expect(loadLabelAngle(s, 'map1')).toBe(-45);
   });
 
   it('clears the key when set back to 0 (leaves no trace)', () => {
@@ -59,7 +72,53 @@ describe('labelAnglePref', () => {
     expect(() => saveLabelAngle(throwing, 'map1', 45)).not.toThrow();
   });
 
-  it('only offers horizontal and 45°', () => {
-    expect(LABEL_ANGLES).toEqual([0, 45]);
+  it('offers horizontal and ±45°', () => {
+    expect(LABEL_ANGLES).toEqual([0, 45, -45]);
+  });
+});
+
+describe('labelPivot', () => {
+  it('defaults to center when nothing is stored', () => {
+    expect(loadLabelPivot(fakeStorage(), 'map1')).toBe('center');
+  });
+
+  it('round-trips a valid pivot per map id', () => {
+    const s = fakeStorage();
+    saveLabelPivot(s, 'map1', 'left');
+    expect(loadLabelPivot(s, 'map1')).toBe('left');
+    // Keyed by map: another map is unaffected.
+    expect(loadLabelPivot(s, 'map2')).toBe('center');
+  });
+
+  it('clears the key when set back to center (leaves no trace)', () => {
+    const s = fakeStorage();
+    saveLabelPivot(s, 'map1', 'top');
+    saveLabelPivot(s, 'map1', 'center');
+    expect(s.getItem('pointplanner.labelPivot.map1')).toBeNull();
+    expect(loadLabelPivot(s, 'map1')).toBe('center');
+  });
+
+  it('falls back to center for unsupported values', () => {
+    expect(loadLabelPivot(fakeStorage({ 'pointplanner.labelPivot.map1': 'sideways' }), 'map1')).toBe('center');
+  });
+
+  it('survives storage that throws (private mode / quota)', () => {
+    const throwing = {
+      getItem: () => {
+        throw new Error('blocked');
+      },
+      setItem: () => {
+        throw new Error('blocked');
+      },
+      removeItem: () => {
+        throw new Error('blocked');
+      },
+    } as unknown as Storage;
+    expect(loadLabelPivot(throwing, 'map1')).toBe('center');
+    expect(() => saveLabelPivot(throwing, 'map1', 'left')).not.toThrow();
+  });
+
+  it('offers center plus the four text-box edges', () => {
+    expect(LABEL_PIVOTS).toEqual(['center', 'left', 'top', 'bottom', 'right']);
   });
 });

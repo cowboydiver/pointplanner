@@ -42,8 +42,8 @@ describe('githubToMap', () => {
   it('places milestone issues on their milestone line', () => {
     const map = githubToMap({ issues, milestones });
     const designLine = map.lines.find(l => l.name === 'Design Phase')!;
-    const issue1 = map.stations.find(s => s.name === 'Set up design system')!;
-    const issue2 = map.stations.find(s => s.name === 'Build component library')!;
+    const issue1 = map.stations.find(s => s.name === '#1 Set up design system')!;
+    const issue2 = map.stations.find(s => s.name === '#2 Build component library')!;
     expect(issue1.lines).toEqual([designLine.id]);
     expect(issue2.lines).toEqual([designLine.id]);
   });
@@ -52,7 +52,7 @@ describe('githubToMap', () => {
     const map = githubToMap({ issues, milestones });
     const backlog = map.lines.find(l => l.name === 'Backlog');
     expect(backlog).toBeDefined();
-    const orphan = map.stations.find(s => s.name === 'Investigate flaky test')!;
+    const orphan = map.stations.find(s => s.name === '#4 Investigate flaky test')!;
     expect(orphan.lines).toEqual([backlog!.id]);
   });
 
@@ -67,7 +67,7 @@ describe('githubToMap', () => {
   it('maps a referenced closed issue → done', () => {
     const map = githubToMap({ issues, milestones });
     // #1 is closed but #2 (open) depends on it, so it surfaces as a done prereq.
-    const closed = map.stations.find(s => s.name === 'Set up design system')!;
+    const closed = map.stations.find(s => s.name === '#1 Set up design system')!;
     expect(closed.status).toBe('done');
   });
 
@@ -144,12 +144,73 @@ describe('githubToMap', () => {
     expect(matches).toHaveLength(1);
   });
 
-  it('includes a closed issue only when an open issue depends on it', () => {
+  it('includes a closed issue connected to an open one, excludes a disconnected one', () => {
     const map = githubToMap({ issues, milestones });
-    // #1 closed, depended on by open #2 → present.
+    // #1 closed, depended on by open #2 → connected → present.
     expect(map.stations.find(s => s.id === 'issue-1')).toBeDefined();
-    // #5 closed, nobody depends on it → excluded.
+    // #5 closed, no relationships at all → disconnected → excluded.
     expect(map.stations.find(s => s.id === 'issue-5')).toBeUndefined();
+  });
+
+  it('includes a closed issue an open issue is a prerequisite of (connected via dependent)', () => {
+    // Open #1 is a prereq of closed #2. The old "open must depend on it" rule
+    // dropped #2 and left #1 isolated; now #2 is kept as a done downstream node.
+    const input = {
+      issues: [open(1, 'Open root'), { ...open(2, 'Closed downstream'), state: 'closed' }],
+      milestones: [],
+      relationships: [{ prereq: 1, dependent: 2 }] as GitHubRelationship[],
+    };
+    const map = githubToMap(input);
+    const closed = map.stations.find(s => s.id === 'issue-2');
+    expect(closed).toBeDefined();
+    expect(closed!.status).toBe('done');
+    expect(map.edges).toContainEqual(
+      expect.objectContaining({ from: 'issue-1', to: 'issue-2' }),
+    );
+  });
+
+  it('keeps a closed chain that bridges a closed blocker to open work', () => {
+    // closed #1 → closed #2 → open #3. Both closed nodes are connected to the
+    // open one transitively, so the whole chain renders.
+    const input = {
+      issues: [
+        { ...open(1, 'Blocker'), state: 'closed' },
+        { ...open(2, 'Bridge'), state: 'closed' },
+        open(3, 'Active'),
+      ],
+      milestones: [],
+      relationships: [
+        { prereq: 1, dependent: 2 },
+        { prereq: 2, dependent: 3 },
+      ] as GitHubRelationship[],
+    };
+    const map = githubToMap(input);
+    expect(map.stations.find(s => s.id === 'issue-1')).toBeDefined();
+    expect(map.stations.find(s => s.id === 'issue-2')).toBeDefined();
+    expect(map.stations.find(s => s.id === 'issue-3')).toBeDefined();
+  });
+
+  it('excludes a fully-completed component with no open issue', () => {
+    // closed #1 → closed #2 form a self-contained done chain, disconnected from
+    // the only open issue (#3) → they are left off so the map stays uncluttered.
+    const input = {
+      issues: [
+        { ...open(1, 'Done a'), state: 'closed' },
+        { ...open(2, 'Done b'), state: 'closed' },
+        open(3, 'Open solo'),
+      ],
+      milestones: [],
+      relationships: [{ prereq: 1, dependent: 2 }] as GitHubRelationship[],
+    };
+    const map = githubToMap(input);
+    expect(map.stations.find(s => s.id === 'issue-1')).toBeUndefined();
+    expect(map.stations.find(s => s.id === 'issue-2')).toBeUndefined();
+    expect(map.stations.find(s => s.id === 'issue-3')).toBeDefined();
+  });
+
+  it('prefixes each station name with its issue number', () => {
+    const map = githubToMap({ issues: [open(7, 'Some title')], milestones: [] });
+    expect(map.stations[0].name).toBe('#7 Some title');
   });
 
   it('runs recompute so open stations settle to locked / available', () => {
@@ -375,7 +436,7 @@ describe('githubToMap', () => {
     });
     expect(before.stations[0].id).toBe('issue-7');
     expect(after.stations[0].id).toBe('issue-7');
-    expect(after.stations[0].name).toBe('Renamed entirely');
+    expect(after.stations[0].name).toBe('#7 Renamed entirely');
     expect(before.stations[0].sourceUrl).toBe(after.stations[0].sourceUrl);
   });
 
@@ -418,8 +479,8 @@ describe('githubToMap', () => {
       ],
       milestones: [],
     });
-    expect(map.stations.find(s => s.id === 'issue-1')!.name).toBe('Agent skill doc');
-    expect(map.stations.find(s => s.id === 'issue-2')!.name).toBe('Explicit re-import');
+    expect(map.stations.find(s => s.id === 'issue-1')!.name).toBe('#1 Agent skill doc');
+    expect(map.stations.find(s => s.id === 'issue-2')!.name).toBe('#2 Explicit re-import');
   });
 
   it('keeps a unique delimited prefix (group of 1) on Backlog with its full title', () => {
@@ -434,7 +495,7 @@ describe('githubToMap', () => {
     const backlog = map.lines.find(l => l.name === 'Backlog')!;
     const solo = map.stations.find(s => s.id === 'issue-3')!;
     expect(solo.lines).toEqual([backlog.id]);
-    expect(solo.name).toBe('Solo epic — only child'); // untouched
+    expect(solo.name).toBe('#3 Solo epic — only child'); // title untouched, just numbered
     expect(map.lines.find(l => l.name === 'Solo epic')).toBeUndefined();
   });
 
@@ -472,7 +533,7 @@ describe('githubToMap', () => {
     // #1 stays on its milestone line with its full, unstripped title.
     const s1 = map.stations.find(s => s.id === 'issue-1')!;
     expect(s1.lines).toEqual([phase1.id]);
-    expect(s1.name).toBe('Roadmap generator — agent skill doc');
+    expect(s1.name).toBe('#1 Roadmap generator — agent skill doc');
     // #2 and #3 still form the prefix line (2 milestone-less members).
     const prefixLine = map.lines.find(l => l.name === 'Roadmap generator')!;
     expect(map.stations.find(s => s.id === 'issue-2')!.lines).toEqual([prefixLine.id]);
@@ -568,8 +629,8 @@ describe('githubToMap shared-prefix tags', () => {
     const map = githubToMap(input);
     const s1 = map.stations.find(s => s.id === 'issue-1')!;
     const s2 = map.stations.find(s => s.id === 'issue-2')!;
-    expect(s1.name).toBe('Empty state');
-    expect(s2.name).toBe('Focus ring');
+    expect(s1.name).toBe('#1 Empty state');
+    expect(s2.name).toBe('#2 Focus ring');
     expect(s1.tags).toContain('Search bar');
     expect(s2.tags).toContain('Search bar');
   });
