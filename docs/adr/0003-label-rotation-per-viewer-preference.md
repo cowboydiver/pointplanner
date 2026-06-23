@@ -29,6 +29,13 @@ Treat the angle like the existing display toggles (dark theme, hide-labels): a
   decongests one dense map need not apply to every other map.
 - The Topbar control is always shown; `Project` no longer carries `labelAngle`.
 
+The same pattern was later extended to let viewers experiment with orientation:
+the angle gained a `-45°` preset and a companion **label pivot** preference
+(`center` = the station marker, or an edge of the label's text box —
+`left`/`top`/`bottom`/`right`), set by `SET_LABEL_PIVOT` and persisted alongside
+the angle (`pointplanner.labelPivot.<id>`). Edge pivots are computed at render
+time from the label's measured bounding box, so they need no stored geometry.
+
 ## Consequences
 
 - Rotation works everywhere, including GitHub mirrors and Viewer shares.

@@ -66,6 +66,18 @@ export function routePoints(edge: Edge, stationById: Record<string, Station>): P
  *                             own row and bends late into the target
  *   - everything else       → diagonal-first (a task branching out from a source)
  */
+/**
+ * The diagonal-first (`df`) bend rule, in one place so the render-time router
+ * (`resolveRouting`) and the grid-space layout clearance pass (`layout.ts`) can
+ * never drift. A converging edge — the target is a merge but the source is not
+ * itself a branch — reads cleanest bending late into the target, so it goes
+ * straight-first (`df=false`); everything else (notably a task fanning out from a
+ * source) bends early at the source (`df=true`).
+ */
+export function resolveDf(targetIsMerge: boolean, sourceIsBranch: boolean): boolean {
+  return !(targetIsMerge && !sourceIsBranch);
+}
+
 export function resolveRouting(edges: Edge[], stationById: Record<string, Station>): Edge[] {
   const inDeg: Record<string, number> = {};
   const outDeg: Record<string, number> = {};
@@ -79,11 +91,7 @@ export function resolveRouting(edges: Edge[], stationById: Record<string, Statio
     const b = stationById[e.to];
     if (!a || !b || a.row === b.row) return { ...e, df: false };
 
-    const targetIsMerge = (inDeg[e.to] || 0) > 1;
-    const sourceIsBranch = (outDeg[e.from] || 0) > 1;
-    // Converging edges look cleanest bending late into the target; a pure branch
-    // fans out best bending early at the source.
-    const df = !(targetIsMerge && !sourceIsBranch);
+    const df = resolveDf((inDeg[e.to] || 0) > 1, (outDeg[e.from] || 0) > 1);
     return { ...e, df };
   });
 }

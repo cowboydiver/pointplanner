@@ -261,19 +261,63 @@ function isClosed(state: string): boolean {
   return state.toLowerCase() === 'closed';
 }
 
+/** Pull every `#123` reference out of a captured run into issue numbers. */
+function refsToNumbers(run: string): number[] {
+  const nums = run.match(/#(\d+)/g) || [];
+  return nums.map(n => parseInt(n.slice(1), 10));
+}
+
+/**
+ * After a relationship keyword, the run of issue references that belongs to it.
+ * Tolerates an optional `:` then any mix of whitespace, blank lines, commas and
+ * markdown bullet markers (`-` / `*`) interleaved with `#N` refs — so a keyword
+ * used as a markdown heading over a bulleted list is captured, e.g.
+ *
+ *   ## Blocked by
+ *
+ *   - #52
+ *   - #30
+ *
+ * The run ends at the first character that is none of those (a letter, `:`,
+ * `[`, …), so the next paragraph or section doesn't bleed in. The alternatives
+ * never overlap on their first character, so there is no catastrophic backtracking.
+ */
+const REF_RUN = '\\s*:?((?:[\\s,]|[-*]|#\\d+)+)';
+
 /**
  * Parse `Depends on #N` / `Blocked by #N` text from an issue body. Returns the
  * referenced issue numbers (the prereqs this issue depends on). Case-insensitive;
- * tolerates comma/space separated lists like "Depends on #1, #2".
+ * tolerates same-line lists ("Depends on #1, #2") and the markdown heading +
+ * bulleted list form (see {@link REF_RUN}).
  */
 function parseBodyDeps(body: string | null | undefined): number[] {
   if (!body) return [];
   const out: number[] = [];
-  const re = /(?:depends on|blocked by)\s*((?:#\d+[\s,]*)+)/gi;
+  const re = new RegExp(`(?:depends on|blocked by)${REF_RUN}`, 'gi');
   let m: RegExpExecArray | null;
   while ((m = re.exec(body)) !== null) {
-    const nums = m[1].match(/#(\d+)/g) || [];
-    for (const n of nums) out.push(parseInt(n.slice(1), 10));
+    for (const n of refsToNumbers(m[1])) out.push(n);
+  }
+  return out;
+}
+
+/**
+ * Parse `Parent: #N` / `Epic: #N` / `Tracked by #N` text from an issue body.
+ * Returns the referenced issue numbers — the parent/epic(s) this issue is a child
+ * of. GitHub surfaces native sub-issue links in a dedicated section, but many
+ * repos express the same parent relationship only as body text; this picks those
+ * up so an epic's children connect to it the same way native sub-issues do (the
+ * child is the prereq, the parent the dependent). Case-insensitive; the colon is
+ * optional ("Parent #5"); tolerates the same bulleted-list form as
+ * {@link parseBodyDeps}. "Parent epic: #51" matches via the `epic` keyword.
+ */
+function parseBodyParents(body: string | null | undefined): number[] {
+  if (!body) return [];
+  const out: number[] = [];
+  const re = new RegExp(`\\b(?:parent|epic|tracked by)\\b${REF_RUN}`, 'gi');
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(body)) !== null) {
+    for (const n of refsToNumbers(m[1])) out.push(n);
   }
   return out;
 }
@@ -323,18 +367,20 @@ function isSignalLabel(name: string): boolean {
 /**
  * Pure transform: plain GitHub issue/milestone objects → a valid `MapData`.
  *
- * - One open issue = one station (name ← title). A *closed* issue surfaces as a
- *   station only when an open issue depends on it (rendered as a `done` prereq);
- *   closed issues with no open dependent are excluded.
+ * - One open issue = one station (name ← `#<number> <title>`). A *closed* issue
+ *   surfaces as a `done` station only when it is connected (directly or
+ *   transitively, in either direction) to an open issue through the dependency
+ *   graph; a fully-completed component with no open issue is excluded.
  * - Lines are derived in three tiers, in order: each milestone becomes a line
  *   (in milestone order); then milestone-less issues sharing a delimited title
  *   prefix (2+ members) form a line named by that prefix, with the prefix
  *   stripped from each member's station name; everything else lands on a single
  *   catch-all `Backlog` line.
- * - Issue relationships (native sub-issue / blocked-by links, plus a
- *   `Depends on #N` / `Blocked by #N` body-text fallback) become edges. Each
- *   edge is colored by the downstream (`to`) station's line; `df` is left off
- *   and derived at render time.
+ * - Issue relationships become edges: native sub-issue / blocked-by links, plus
+ *   a body-text fallback for both kinds — `Depends on #N` / `Blocked by #N`
+ *   (this issue depends on N) and `Parent: #N` / `Epic: #N` / `Tracked by #N`
+ *   (this issue is a child of N). Each edge is colored by the downstream (`to`)
+ *   station's line; `df` is left off and derived at render time.
  * - Closed issue → `done`; open issues are settled to `locked` / `available` by
  *   `recompute` over the dependency graph.
  * - Layout (`col`/`row`/`lp`) comes from the deterministic topological helper
@@ -382,6 +428,9 @@ export function githubToMapReport(input: GithubToMapInput): GithubToMapResult {
   relationships.forEach(r => addPair(r.prereq, r.dependent));
   issues.forEach(iss => {
     for (const prereq of parseBodyDeps(iss.body)) addPair(prereq, iss.number);
+    // A parent/epic reference makes THIS issue the child (prereq) of that parent
+    // (dependent) — the same direction native sub-issue links use.
+    for (const parent of parseBodyParents(iss.body)) addPair(iss.number, parent);
   });
 
   // ---- 1b. Break cycles deterministically so the map always renders. ----
@@ -392,22 +441,44 @@ export function githubToMapReport(input: GithubToMapInput): GithubToMapResult {
   const acyclicPairs = breakCycles(depPairs, dropped);
 
   // ---- 2. Decide which issues become stations. ----
-  // Every open issue is a station. A closed issue is included only if some open
-  // issue depends on it.
-  const dependentsOfClosed = new Set<number>(); // closed issue numbers referenced by an open dependent
+  // Every open issue is a station. A closed issue is included only when it is
+  // connected — directly or transitively, in either direction — to an open issue
+  // through the dependency graph. This keeps a closed common blocker (and the
+  // closed chains between it and the open work) on the map as `done` stations, so
+  // open stations don't end up isolated when their blocker has been closed. A
+  // fully-completed component with no open issue is left out, so the map isn't
+  // flooded with disconnected done work.
+  const adjacency = new Map<number, number[]>();
+  const link = (a: number, b: number) => {
+    const list = adjacency.get(a);
+    if (list) list.push(b);
+    else adjacency.set(a, [b]);
+  };
   for (const { prereq, dependent } of acyclicPairs) {
-    const prereqIssue = issueByNumber.get(prereq);
-    const dependentIssue = issueByNumber.get(dependent);
-    if (!prereqIssue || !dependentIssue) continue;
-    if (isClosed(prereqIssue.state) && !isClosed(dependentIssue.state)) {
-      dependentsOfClosed.add(prereq);
+    link(prereq, dependent);
+    link(dependent, prereq);
+  }
+  const connectedToOpen = new Set<number>();
+  const frontier: number[] = [];
+  for (const iss of issues) {
+    if (!isClosed(iss.state)) {
+      connectedToOpen.add(iss.number);
+      frontier.push(iss.number);
+    }
+  }
+  while (frontier.length) {
+    const cur = frontier.pop()!;
+    for (const next of adjacency.get(cur) ?? []) {
+      if (!connectedToOpen.has(next)) {
+        connectedToOpen.add(next);
+        frontier.push(next);
+      }
     }
   }
 
-  const includedIssues = issues.filter(iss => {
-    if (!isClosed(iss.state)) return true;
-    return dependentsOfClosed.has(iss.number);
-  });
+  const includedIssues = issues.filter(
+    iss => !isClosed(iss.state) || connectedToOpen.has(iss.number),
+  );
 
   // ---- 2b. Group milestone-less issues by a shared, delimiter-based prefix. ----
   // A prefix shared by 2+ such issues becomes its own line (named verbatim from
@@ -553,8 +624,8 @@ export function githubToMapReport(input: GithubToMapInput): GithubToMapResult {
   for (const { prereq, dependent } of acyclicPairs) {
     const from = stationIdByNumber.get(prereq);
     const to = stationIdByNumber.get(dependent);
-    // Both endpoints must be stations (e.g. a closed prereq with no open
-    // dependent was excluded, so it has no station).
+    // Both endpoints must be stations (e.g. a closed issue in a fully-completed
+    // component was excluded, so it has no station).
     if (!from || !to) continue;
     const edgeKey = `${from}->${to}`;
     if (seenEdge.has(edgeKey)) continue;
@@ -611,7 +682,10 @@ export function githubToMapReport(input: GithubToMapInput): GithubToMapResult {
 
     return {
       id: stationId,
-      name,
+      // Prefix the displayed name with the issue number (e.g. "#42 Title"). Done
+      // last, after prefix→line and shared-word stripping, so those derivations
+      // still see the clean title.
+      name: `#${iss.number} ${name}`,
       lines: [lineId],
       col,
       row,

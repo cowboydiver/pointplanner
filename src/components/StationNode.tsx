@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { Station, Line, LabelPlacement } from '../types';
+import type { LabelPivot } from '../lib/labelAnglePref';
 import { px, py } from '../lib/routing';
 import { wrapLabel } from '../lib/labelWrap';
 
@@ -12,7 +13,32 @@ interface StationNodeProps {
   isDim: boolean;
   /** Per-viewer label rotation in degrees (subway style); 0 = horizontal. */
   labelAngle?: number;
+  /** Per-viewer point the rotation pivots about; defaults to the station marker. */
+  labelPivot?: LabelPivot;
   onSelect: (id: string) => void;
+}
+
+type Box = { x: number; y: number; width: number; height: number };
+
+/**
+ * The point a rotated label pivots about, in the station's local coordinate
+ * system (origin = marker). `center` pivots about the marker itself; the rest
+ * pivot about the midpoint of an edge of the measured text box.
+ */
+function pivotPoint(pivot: LabelPivot, box: Box): [number, number] {
+  switch (pivot) {
+    case 'left':
+      return [box.x, box.y + box.height / 2];
+    case 'right':
+      return [box.x + box.width, box.y + box.height / 2];
+    case 'top':
+      return [box.x + box.width / 2, box.y];
+    case 'bottom':
+      return [box.x + box.width / 2, box.y + box.height];
+    case 'center':
+    default:
+      return [0, 0];
+  }
 }
 
 function getLabelProps(lp: LabelPlacement) {
@@ -29,7 +55,7 @@ function getLabelProps(lp: LabelPlacement) {
   }
 }
 
-export function StationNode({ station, primaryLine, isSelected, isDim, labelAngle = 0, onSelect }: StationNodeProps) {
+export function StationNode({ station, primaryLine, isSelected, isDim, labelAngle = 0, labelPivot = 'center', onSelect }: StationNodeProps) {
   const isInterchange = station.lines.length > 1;
   const cx = px(station.col);
   const cy = py(station.row);
@@ -44,6 +70,34 @@ export function StationNode({ station, primaryLine, isSelected, isDim, labelAngl
   if (station.lp === 'top') firstLineY = labelProps.y - (lineCount - 1) * LINE_HEIGHT;
   else if (station.lp === 'left' || station.lp === 'right')
     firstLineY = labelProps.y - ((lineCount - 1) * LINE_HEIGHT) / 2;
+
+  // Measure the rendered text box (in local, pre-rotation coordinates) so the
+  // rotation can pivot about one of its edges. getBBox ignores ancestor
+  // transforms, so the box stays stable as the angle/pivot change — we only
+  // re-measure when the text content or placement changes. Edge-pivots fall back
+  // to a marker pivot until the first measurement lands.
+  const textRef = useRef<SVGTextElement>(null);
+  const [box, setBox] = useState<Box | null>(null);
+  useLayoutEffect(() => {
+    const el = textRef.current;
+    if (!el) return;
+    try {
+      const b = el.getBBox();
+      setBox({ x: b.x, y: b.y, width: b.width, height: b.height });
+    } catch {
+      setBox(null);
+    }
+  }, [station.name, station.lp]);
+
+  let labelTransform: string | undefined;
+  if (labelAngle) {
+    if (labelPivot === 'center' || !box) {
+      labelTransform = `rotate(${labelAngle})`;
+    } else {
+      const [pxv, pyv] = pivotPoint(labelPivot, box);
+      labelTransform = `rotate(${labelAngle} ${pxv} ${pyv})`;
+    }
+  }
 
   const [justChanged, setJustChanged] = useState(false);
 
@@ -95,8 +149,9 @@ export function StationNode({ station, primaryLine, isSelected, isDim, labelAngl
       <circle className="marker" r={isInterchange ? 13 : 11} cx={0} cy={0} />
       <path className="check" d="M -4.2 0.4 L -1.2 3.4 L 4.6 -3.2" />
       <circle className="active-dot" r={4.4} cx={0} cy={0} />
-      <g transform={labelAngle ? `rotate(${labelAngle})` : undefined}>
+      <g transform={labelTransform}>
         <text
+          ref={textRef}
           className="label"
           x={labelProps.x}
           y={firstLineY}
