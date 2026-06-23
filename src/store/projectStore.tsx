@@ -24,6 +24,7 @@ const MUTATING_ACTIONS = new Set<Action['type']>([
   'CREATE_LINE',
   'UPDATE_LINE',
   'DELETE_LINE',
+  'AUTO_ARRANGE',
 ]);
 
 interface StoreContextValue {

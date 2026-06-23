@@ -36,7 +36,8 @@ seed data (src/data/seed.ts)
 | `dependencies.ts` | `recompute` — cascades `locked`↔`available` based on which prereqs are `done` |
 | `routing.ts` | `routePoints` (45° waypoints, `df` flag = diagonal-first), `pointsToPath` (rounded-corner SVG path), grid helpers `px`/`py` |
 | `bounds.ts` | `computeBounds` → SVG viewBox accounting for label padding |
-| `placement.ts` | `slugify`, `placeNewStation` — auto-places a new task to the right of its prereqs |
+| `layout.ts` | `layoutStations` (deterministic topological columns + adjacency-ordered per-line row bands + barycentre column packing + clearance pass) and `relayoutStations` — re-derives every station's position from the graph. Used by generated maps and by every interactive structural edit / Auto-arrange (ADR 0005) |
+| `placement.ts` | `slugify` — generates a unique station id from a task name |
 
 Grid constants (do not change without updating tests): `PAD_X=96, COL=152, PAD_Y=92, ROW=94, CORNER_RADIUS=18`.
 
@@ -62,7 +63,7 @@ The sync backend is **Deno Edge Functions** (excluded from `tsc`/ESLint; the pur
 
 ### Store actions
 
-`DO_ACTION(id, 'start'|'done'|'reopen')` mutates a single station's status then runs `recompute` over the whole graph. `CREATE_TASK` calls `placeNewStation`, builds new edges with `df=true` if the prereq is on a different row, pushes the station, then recomputes.
+`DO_ACTION(id, 'start'|'done'|'reopen')` mutates a single station's status then runs `recompute` over the whole graph. Structural edits (`CREATE_TASK`, `DELETE_TASK`, and `UPDATE_TASK` when prereqs or lines change) build the new edge set, re-derive every position with `relayoutStations`, then recompute; routing `df` is derived at render time. `AUTO_ARRANGE` re-derives positions on demand (ADR 0005).
 
 ### Styling
 
