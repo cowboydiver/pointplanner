@@ -261,19 +261,63 @@ function isClosed(state: string): boolean {
   return state.toLowerCase() === 'closed';
 }
 
+/** Pull every `#123` reference out of a captured run into issue numbers. */
+function refsToNumbers(run: string): number[] {
+  const nums = run.match(/#(\d+)/g) || [];
+  return nums.map(n => parseInt(n.slice(1), 10));
+}
+
+/**
+ * After a relationship keyword, the run of issue references that belongs to it.
+ * Tolerates an optional `:` then any mix of whitespace, blank lines, commas and
+ * markdown bullet markers (`-` / `*`) interleaved with `#N` refs — so a keyword
+ * used as a markdown heading over a bulleted list is captured, e.g.
+ *
+ *   ## Blocked by
+ *
+ *   - #52
+ *   - #30
+ *
+ * The run ends at the first character that is none of those (a letter, `:`,
+ * `[`, …), so the next paragraph or section doesn't bleed in. The alternatives
+ * never overlap on their first character, so there is no catastrophic backtracking.
+ */
+const REF_RUN = '\\s*:?((?:[\\s,]|[-*]|#\\d+)+)';
+
 /**
  * Parse `Depends on #N` / `Blocked by #N` text from an issue body. Returns the
  * referenced issue numbers (the prereqs this issue depends on). Case-insensitive;
- * tolerates comma/space separated lists like "Depends on #1, #2".
+ * tolerates same-line lists ("Depends on #1, #2") and the markdown heading +
+ * bulleted list form (see {@link REF_RUN}).
  */
 function parseBodyDeps(body: string | null | undefined): number[] {
   if (!body) return [];
   const out: number[] = [];
-  const re = /(?:depends on|blocked by)\s*((?:#\d+[\s,]*)+)/gi;
+  const re = new RegExp(`(?:depends on|blocked by)${REF_RUN}`, 'gi');
   let m: RegExpExecArray | null;
   while ((m = re.exec(body)) !== null) {
-    const nums = m[1].match(/#(\d+)/g) || [];
-    for (const n of nums) out.push(parseInt(n.slice(1), 10));
+    for (const n of refsToNumbers(m[1])) out.push(n);
+  }
+  return out;
+}
+
+/**
+ * Parse `Parent: #N` / `Epic: #N` / `Tracked by #N` text from an issue body.
+ * Returns the referenced issue numbers — the parent/epic(s) this issue is a child
+ * of. GitHub surfaces native sub-issue links in a dedicated section, but many
+ * repos express the same parent relationship only as body text; this picks those
+ * up so an epic's children connect to it the same way native sub-issues do (the
+ * child is the prereq, the parent the dependent). Case-insensitive; the colon is
+ * optional ("Parent #5"); tolerates the same bulleted-list form as
+ * {@link parseBodyDeps}. "Parent epic: #51" matches via the `epic` keyword.
+ */
+function parseBodyParents(body: string | null | undefined): number[] {
+  if (!body) return [];
+  const out: number[] = [];
+  const re = new RegExp(`\\b(?:parent|epic|tracked by)\\b${REF_RUN}`, 'gi');
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(body)) !== null) {
+    for (const n of refsToNumbers(m[1])) out.push(n);
   }
   return out;
 }
@@ -332,10 +376,11 @@ function isSignalLabel(name: string): boolean {
  *   prefix (2+ members) form a line named by that prefix, with the prefix
  *   stripped from each member's station name; everything else lands on a single
  *   catch-all `Backlog` line.
- * - Issue relationships (native sub-issue / blocked-by links, plus a
- *   `Depends on #N` / `Blocked by #N` body-text fallback) become edges. Each
- *   edge is colored by the downstream (`to`) station's line; `df` is left off
- *   and derived at render time.
+ * - Issue relationships become edges: native sub-issue / blocked-by links, plus
+ *   a body-text fallback for both kinds — `Depends on #N` / `Blocked by #N`
+ *   (this issue depends on N) and `Parent: #N` / `Epic: #N` / `Tracked by #N`
+ *   (this issue is a child of N). Each edge is colored by the downstream (`to`)
+ *   station's line; `df` is left off and derived at render time.
  * - Closed issue → `done`; open issues are settled to `locked` / `available` by
  *   `recompute` over the dependency graph.
  * - Layout (`col`/`row`/`lp`) comes from the deterministic topological helper
@@ -383,6 +428,9 @@ export function githubToMapReport(input: GithubToMapInput): GithubToMapResult {
   relationships.forEach(r => addPair(r.prereq, r.dependent));
   issues.forEach(iss => {
     for (const prereq of parseBodyDeps(iss.body)) addPair(prereq, iss.number);
+    // A parent/epic reference makes THIS issue the child (prereq) of that parent
+    // (dependent) — the same direction native sub-issue links use.
+    for (const parent of parseBodyParents(iss.body)) addPair(iss.number, parent);
   });
 
   // ---- 1b. Break cycles deterministically so the map always renders. ----

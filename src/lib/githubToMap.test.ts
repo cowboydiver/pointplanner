@@ -106,6 +106,53 @@ describe('githubToMap', () => {
     );
   });
 
+  it('parses a `## Blocked by` heading over a markdown bullet list (real-world body)', () => {
+    // The form a real repo uses: a heading, blank line, then `- #N` items, then
+    // a parent reference in its own paragraph. All three links must appear.
+    const body = ['## Blocked by', '', '- #52', '- #30', '', 'Parent epic: #51'].join('\n');
+    const input = {
+      issues: [open(30, 'Dep a'), open(31, 'Child'), open(51, 'Epic'), open(52, 'Dep b')],
+      milestones: [],
+    };
+    input.issues[1] = { ...input.issues[1], body };
+    const map = githubToMap(input);
+    // Blocked-by list → #31 depends on #52 and #30.
+    expect(map.edges).toContainEqual(expect.objectContaining({ from: 'issue-52', to: 'issue-31' }));
+    expect(map.edges).toContainEqual(expect.objectContaining({ from: 'issue-30', to: 'issue-31' }));
+    // Parent epic → #31 is a child (prereq) of #51.
+    expect(map.edges).toContainEqual(expect.objectContaining({ from: 'issue-31', to: 'issue-51' }));
+  });
+
+  it('parses `Parent: #N` / `Epic: #N` / `Tracked by #N` body text into child→parent edges', () => {
+    // Each child names its parent in the body; the child is the prereq, the
+    // parent the dependent (the same direction native sub-issues use).
+    const input = {
+      issues: [
+        open(1, 'Epic'),
+        { ...open(2, 'Child via parent'), body: 'Parent: #1' },
+        { ...open(3, 'Child via epic'), body: 'Epic: #1' },
+        { ...open(4, 'Child via tracked by'), body: 'Tracked by #1' },
+      ],
+      milestones: [],
+    };
+    const map = githubToMap(input);
+    expect(map.edges).toContainEqual(expect.objectContaining({ from: 'issue-2', to: 'issue-1' }));
+    expect(map.edges).toContainEqual(expect.objectContaining({ from: 'issue-3', to: 'issue-1' }));
+    expect(map.edges).toContainEqual(expect.objectContaining({ from: 'issue-4', to: 'issue-1' }));
+  });
+
+  it('does not treat the word "parent"/"epic" in prose (no #ref) as a relationship', () => {
+    const input = {
+      issues: [
+        open(1, 'A'),
+        { ...open(2, 'B'), body: 'This is the parent epic of the feature.' },
+      ],
+      milestones: [],
+    };
+    const map = githubToMap(input);
+    expect(map.edges).toHaveLength(0);
+  });
+
   it('colors each edge by the downstream (to) station line; df is omitted', () => {
     const map = githubToMap({ issues, milestones });
     const designLine = map.lines.find(l => l.name === 'Design Phase')!;
