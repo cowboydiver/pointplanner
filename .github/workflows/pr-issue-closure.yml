@@ -25,7 +25,7 @@ jobs:
           node-version: 20
           cache: npm
       - run: npm ci
-      - run: npx tsx scripts/check-pr-closure.ts
+      - run: npm run check-pr-closure
         env:
           # `gh` (preinstalled on the runner) resolves each #N to issue/PR/missing.
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

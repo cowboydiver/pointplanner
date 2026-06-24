@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { analyzeClosure, type RefKind } from './check-pr-closure.ts';
+import { analyzeClosure, type RefKind } from './prClosure.ts';
 
 /** Build a `classify` stub from a number→kind map (defaults to a missing ref). */
 function classifier(map: Record<number, RefKind>) {
@@ -27,6 +27,33 @@ describe('analyzeClosure', () => {
       classifier(open),
     );
     expect(violations.map((v) => v.number)).toEqual([5, 6, 7, 8, 9, 10, 11]);
+  });
+
+  it('flags a comma-list — GitHub closes only the first id (Closes #6, #7, #11)', () => {
+    // PR #33's audit row rendered this form; the real PR used one Closes line per
+    // issue. Strict is correct: a comma-list strands every id past the first.
+    const { closes, violations } = analyzeClosure(
+      'Add label rotation',
+      'Closes #6, #7, #11',
+      classifier({ 6: 'issue-open', 7: 'issue-open', 11: 'issue-open' }),
+    );
+    expect(closes).toEqual([6]);
+    expect(violations.map((v) => v.number)).toEqual([7, 11]);
+    // The message names the comma-list cause, not a generic "no keyword".
+    expect(violations[0].reason).toMatch(/comma-list/);
+  });
+
+  it('flags interior numbers of a range in the body (Closes #5–#11)', () => {
+    const open: Record<number, RefKind> = {};
+    for (let n = 5; n <= 11; n++) open[n] = 'issue-open';
+    const { closes, violations } = analyzeClosure(
+      'Bulk work',
+      'Closes #5–#11',
+      classifier(open),
+    );
+    expect(closes).toEqual([5]); // only the first id is registered as closed
+    expect(violations.map((v) => v.number)).toEqual([6, 7, 8, 9, 10, 11]);
+    expect(violations[0].reason).toMatch(/range/);
   });
 
   it('flags a bare body reference to an open issue', () => {
