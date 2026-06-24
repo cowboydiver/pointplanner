@@ -71,17 +71,19 @@ describe('githubToMap', () => {
     expect(closed.status).toBe('done');
   });
 
-  it('lays out col by index within line, row by line band', () => {
+  it('lays out col by dependency depth and keeps a chain on one straight row', () => {
     const map = githubToMap({ issues, milestones });
     const designLine = map.lines.find(l => l.name === 'Design Phase')!;
-    const buildLine = map.lines.find(l => l.name === 'Build Phase')!;
     const designStations = map.stations.filter(s => s.lines[0] === designLine.id);
-    // Two design issues sit on the same row band, columns 0 and 1.
+    // Two design issues — a root and its dependent — at columns 0 and 1, same row.
     expect(designStations.map(s => s.col).sort()).toEqual([0, 1]);
     expect(new Set(designStations.map(s => s.row)).size).toBe(1);
-    // Different lines occupy different row bands.
-    const buildStation = map.stations.find(s => s.lines[0] === buildLine.id)!;
-    expect(buildStation.row).not.toBe(designStations[0].row);
+    // The chain #1 → #2 → #3 stays one straight strand even though #3 is on the
+    // Build line: structural packing keeps it on the chain's row, not a separate
+    // band one column further right.
+    const chainTail = map.stations.find(s => s.name === '#3 Ship the API')!;
+    expect(chainTail.col).toBe(2);
+    expect(chainTail.row).toBe(designStations[0].row);
   });
 
   it('fills required Station fields with placeholders', () => {
