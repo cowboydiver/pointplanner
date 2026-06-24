@@ -383,8 +383,9 @@ function isSignalLabel(name: string): boolean {
  *   station's line; `df` is left off and derived at render time.
  * - Closed issue → `done`; open issues are settled to `locked` / `available` by
  *   `recompute` over the dependency graph.
- * - Layout (`col`/`row`/`lp`) comes from the deterministic topological helper
- *   `layoutStations`: col by dependency depth, row packed per line band.
+ * - Layout (`col`/`row`/`lp`) comes from the deterministic helper
+ *   `layoutStations`: col by dependency depth, rows from crossing-reduction and
+ *   strand packing (ADR 0006).
  */
 export function githubToMap(input: GithubToMapInput): MapData {
   return githubToMapReport(input).map;
@@ -615,7 +616,7 @@ export function githubToMapReport(input: GithubToMapInput): GithubToMapResult {
     stationIdByNumber.set(iss.number, stationId);
     lineIdByNumber.set(iss.number, resolvedLineId);
 
-    return { id: stationId, lineId: resolvedLineId };
+    return { id: stationId };
   });
 
   // ---- 5. Build edges. Colored by the downstream (`to`) station's line. ----

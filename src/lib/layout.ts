@@ -1,13 +1,12 @@
 import type { Edge, LabelPlacement, Station } from '../types.ts';
 
 /**
- * Minimal node shape the layout cares about. Callers pass stations in a stable
- * order; `lineId` is the single line a generated station belongs to (kept for
- * the public surface and callers, though positioning is now purely structural).
+ * Minimal node shape the layout cares about: just the station id, in a stable
+ * caller-provided order. Positioning is purely structural (from the dependency
+ * graph), so the layout needs nothing else.
  */
 export interface LayoutNode {
   id: string;
-  lineId: string;
 }
 
 export interface LayoutResult {
@@ -196,14 +195,14 @@ export function layoutStations(
  * Auto-arrange) discards nothing — see ADR 0005.
  *
  * Stations are fed in array order, the stable order callers already keep (append
- * on create, in-place on update, filtered on delete), so ordering and clearance
- * never jitter between edits.
+ * on create, in-place on update, filtered on delete), so ordering never jitters
+ * between edits.
  *
  * Only `col`/`row`/`lp` change; every other field (status, lines, metadata) is
  * preserved. Status is settled separately by `recompute`.
  */
 export function relayoutStations(stations: Station[], edges: Edge[]): Station[] {
-  const nodes: LayoutNode[] = stations.map(s => ({ id: s.id, lineId: s.lines[0] ?? '' }));
+  const nodes: LayoutNode[] = stations.map(s => ({ id: s.id }));
 
   const prereqs: Record<string, string[]> = {};
   for (const e of edges) {

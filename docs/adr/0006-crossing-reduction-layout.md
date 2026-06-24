@@ -2,7 +2,9 @@
 
 ## Status
 
-accepted
+accepted. Supersedes the per-line **band** mechanism and the **clearance** pass
+of [ADR 0005](0005-auto-arrange-interactive-maps.md); 0005's re-layout *trigger*
+decision (re-flow on structural edits / Auto-arrange) still stands.
 
 ## Context
 

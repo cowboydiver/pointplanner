@@ -13,9 +13,9 @@ function makeStation(id: string, lines: string[], overrides: Partial<Station> = 
 describe('layoutStations', () => {
   it('assigns col by topological depth (roots at 0, dependents one column right)', () => {
     const nodes: LayoutNode[] = [
-      { id: 'a', lineId: 'l1' },
-      { id: 'b', lineId: 'l1' },
-      { id: 'c', lineId: 'l1' },
+      { id: 'a' },
+      { id: 'b' },
+      { id: 'c' },
     ];
     // a -> b -> c
     const prereqs = { b: ['a'], c: ['b'] };
@@ -27,10 +27,10 @@ describe('layoutStations', () => {
 
   it('places a dependent of two prereqs one column right of the DEEPEST', () => {
     const nodes: LayoutNode[] = [
-      { id: 'a', lineId: 'l1' }, // depth 0
-      { id: 'b', lineId: 'l1' }, // depth 1 (after a)
-      { id: 'c', lineId: 'l1' }, // a root with no prereqs
-      { id: 'd', lineId: 'l1' }, // depends on b (depth 1) and c
+      { id: 'a' }, // depth 0
+      { id: 'b' }, // depth 1 (after a)
+      { id: 'c' }, // a root with no prereqs
+      { id: 'd' }, // depends on b (depth 1) and c
     ];
     const prereqs = { b: ['a'], d: ['b', 'c'] };
     const out = layoutStations(nodes, prereqs);
@@ -42,13 +42,13 @@ describe('layoutStations', () => {
     expect(out.c.col).toBe(1);
   });
 
-  it('packs rows per line band in first-appearance order', () => {
+  it('packs disconnected roots in array order at column 0', () => {
     const nodes: LayoutNode[] = [
-      { id: 'a', lineId: 'l1' },
-      { id: 'b', lineId: 'l2' },
-      { id: 'c', lineId: 'l3' },
+      { id: 'a' },
+      { id: 'b' },
+      { id: 'c' },
     ];
-    // No deps → all col 0, each on its own line band → distinct rows.
+    // No deps → all isolated roots at col 0, packed in array order.
     const out = layoutStations(nodes, {});
     expect(out.a.row).toBe(0);
     expect(out.b.row).toBe(1);
@@ -59,11 +59,11 @@ describe('layoutStations', () => {
 
   it('bumps row deterministically when two stations collide on the same col/row', () => {
     const nodes: LayoutNode[] = [
-      { id: 'a', lineId: 'l1' },
-      { id: 'b', lineId: 'l1' }, // same line, same col → collides with a
-      { id: 'c', lineId: 'l1' }, // collides again
+      { id: 'a' },
+      { id: 'b' }, // same line, same col → collides with a
+      { id: 'c' }, // collides again
     ];
-    // No deps → all want col 0, band 0.
+    // No deps → all isolated roots at col 0.
     const out = layoutStations(nodes, {});
     expect(out.a).toMatchObject({ col: 0, row: 0 });
     expect(out.b).toMatchObject({ col: 0, row: 1 });
@@ -72,9 +72,9 @@ describe('layoutStations', () => {
 
   it('is deterministic: identical input yields identical output', () => {
     const nodes: LayoutNode[] = [
-      { id: 'a', lineId: 'l1' },
-      { id: 'b', lineId: 'l1' },
-      { id: 'c', lineId: 'l2' },
+      { id: 'a' },
+      { id: 'b' },
+      { id: 'c' },
     ];
     const prereqs = { b: ['a'], c: ['a'] };
     const first = layoutStations(nodes, prereqs);
@@ -83,13 +83,13 @@ describe('layoutStations', () => {
   });
 
   it('applies the lp heuristic (row >= 3 → bottom, else top)', () => {
-    // Five nodes on one line band, all col 0 → rows 0..4, bands climb.
+    // Five isolated roots, all col 0 → rows 0..4.
     const nodes: LayoutNode[] = [
-      { id: 'r0', lineId: 'l1' },
-      { id: 'r1', lineId: 'l1' },
-      { id: 'r2', lineId: 'l1' },
-      { id: 'r3', lineId: 'l1' },
-      { id: 'r4', lineId: 'l1' },
+      { id: 'r0' },
+      { id: 'r1' },
+      { id: 'r2' },
+      { id: 'r3' },
+      { id: 'r4' },
     ];
     const out = layoutStations(nodes, {});
     expect(out.r0).toMatchObject({ row: 0, lp: 'top' });
@@ -99,7 +99,7 @@ describe('layoutStations', () => {
   });
 
   it('ignores prereqs that are not stations in the node set', () => {
-    const nodes: LayoutNode[] = [{ id: 'a', lineId: 'l1' }];
+    const nodes: LayoutNode[] = [{ id: 'a' }];
     // a depends on a closed/excluded issue not present as a node.
     const out = layoutStations(nodes, { a: ['ghost'] });
     expect(out.a.col).toBe(0);
@@ -109,9 +109,9 @@ describe('layoutStations', () => {
     // a→b→c chain plus a direct a→c edge. Strand packing aligns all three on the
     // chain's row (a deterministic, straight strand) rather than fanning them out.
     const nodes: LayoutNode[] = [
-      { id: 'a', lineId: 'l1' },
-      { id: 'b', lineId: 'l1' },
-      { id: 'c', lineId: 'l1' },
+      { id: 'a' },
+      { id: 'b' },
+      { id: 'c' },
     ];
     const prereqs = { b: ['a'], c: ['b', 'a'] };
     const out = layoutStations(nodes, prereqs);
@@ -122,9 +122,9 @@ describe('layoutStations', () => {
 
   it('is deterministic and keeps a simple chain straight on one row', () => {
     const nodes: LayoutNode[] = [
-      { id: 'a', lineId: 'l1' },
-      { id: 'b', lineId: 'l1' },
-      { id: 'c', lineId: 'l1' },
+      { id: 'a' },
+      { id: 'b' },
+      { id: 'c' },
     ];
     const prereqs = { b: ['a'], c: ['b', 'a'] };
     expect(layoutStations(nodes, prereqs)).toEqual(layoutStations(nodes, prereqs));
@@ -136,8 +136,8 @@ describe('layoutStations', () => {
 
   it('does not infinite-loop on a stray cycle', () => {
     const nodes: LayoutNode[] = [
-      { id: 'a', lineId: 'l1' },
-      { id: 'b', lineId: 'l1' },
+      { id: 'a' },
+      { id: 'b' },
     ];
     // a -> b -> a (should not happen, but guard defensively).
     const prereqs = { a: ['b'], b: ['a'] };
@@ -153,9 +153,9 @@ describe('layoutStations', () => {
     // a (col 0) → c (col 1); b is an unconnected root at col 0. Strand packing
     // puts c on a's row (a straight a→c strand) and the unconnected b below.
     const nodes: LayoutNode[] = [
-      { id: 'a', lineId: 'l1' },
-      { id: 'b', lineId: 'l2' }, // unconnected root
-      { id: 'c', lineId: 'l3' }, // depends on a
+      { id: 'a' },
+      { id: 'b' }, // unconnected root
+      { id: 'c' }, // depends on a
     ];
     const out = layoutStations(nodes, { c: ['a'] });
     expect(out.a).toMatchObject({ col: 0, row: 0 });
@@ -163,16 +163,16 @@ describe('layoutStations', () => {
     expect(out.b).toMatchObject({ col: 0, row: 1 }); // unconnected, packed below a
   });
 
-  it('orders same-band column collisions by prerequisite barycentre', () => {
+  it('orders column collisions by prerequisite barycentre', () => {
     // Two l1 sources stacked at rows 0 and 1; two l1 targets collide in col 1.
     // Node order is [top, bot, t1, t2] where t1 depends on the BOTTOM source and
     // t2 on the TOP source. Barycentre ordering places each target on its
     // source's row (t2 row 0, t1 row 1) instead of crossing.
     const nodes: LayoutNode[] = [
-      { id: 'top', lineId: 'l1' },
-      { id: 'bot', lineId: 'l1' },
-      { id: 't1', lineId: 'l1' },
-      { id: 't2', lineId: 'l1' },
+      { id: 'top' },
+      { id: 'bot' },
+      { id: 't1' },
+      { id: 't2' },
     ];
     const out = layoutStations(nodes, { t1: ['bot'], t2: ['top'] });
     expect(out.top).toMatchObject({ col: 0, row: 0 });

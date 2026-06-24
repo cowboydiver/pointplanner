@@ -2,7 +2,10 @@
 
 ## Status
 
-accepted
+accepted. **Partially superseded by [ADR 0006](0006-crossing-reduction-layout.md):**
+the per-line **band** layout and the **clearance** pass described below were
+replaced by crossing-reduction + strand packing. The re-layout *trigger* decision
+(re-flow on structural edits and on demand via Auto-arrange) still stands.
 
 ## Context
 
