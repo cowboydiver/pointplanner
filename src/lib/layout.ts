@@ -1,13 +1,12 @@
 import type { Edge, LabelPlacement, Station } from '../types.ts';
-import { resolveDf } from './routing.ts';
 
 /**
- * Minimal node shape the layout cares about. Callers pass stations in a stable
- * order; `lineId` is the single line a generated station belongs to (its band).
+ * Minimal node shape the layout cares about: just the station id, in a stable
+ * caller-provided order. Positioning is purely structural (from the dependency
+ * graph), so the layout needs nothing else.
  */
 export interface LayoutNode {
   id: string;
-  lineId: string;
 }
 
 export interface LayoutResult {
@@ -16,23 +15,40 @@ export interface LayoutResult {
   lp: LabelPlacement;
 }
 
+const median = (xs: number[]): number => {
+  const a = [...xs].sort((x, y) => x - y);
+  const m = a.length >> 1;
+  return a.length % 2 ? a[m] : (a[m - 1] + a[m]) / 2;
+};
+
+const CROSSING_SWEEPS = 8;
+const RELAX_PASSES = 4;
+
 /**
- * Deterministic subway-style layout from a dependency graph.
+ * Deterministic subway-style layout from a dependency graph, tuned to keep dense
+ * maps legible (ADR 0006). The pipeline, left to right:
  *
- * - `col` ← topological depth: a root (no station prerequisites) sits at col 0;
- *   every other station lands one column right of its DEEPEST prerequisite.
- * - `row` ← packed within the station's line band. Each line keeps its own base
- *   row (a line reads as one horizontal strand), but the bands are ordered so
- *   that lines joined by cross-line edges sit on adjacent rows, shortening those
- *   edges and cutting crossings. Within a column, same-band collisions fan
- *   downward ordered by the average row of a node's prerequisites (a barycentre
- *   pass) so fan-ins don't cross. Disconnected lines keep first-appearance order.
- * - `lp` ← seed heuristic: `row >= 3 ? 'bottom' : 'top'`.
+ *   1. Topological columns — a node sits one column right of its DEEPEST
+ *      prerequisite (roots at 0). Memoized with an in-progress guard so a stray
+ *      cycle settles at column 0 instead of looping forever.
+ *   2. Root-column pull — a node with NO prerequisites slides right to just left
+ *      of its earliest consumer, instead of being pinned at column 0. This kills
+ *      the long trailing diagonals that a far-downstream source would otherwise
+ *      draw across the whole map.
+ *   3. Crossing reduction — iterated barycentre (median) ordering within each
+ *      column, sweeping toward prerequisites then dependents, so lines stop
+ *      tangling into a "snake nest".
+ *   4. Strand packing — each node's row is pulled to the average row of its
+ *      placed prerequisites and packed downward, so a dependency chain comes out
+ *      as one near-horizontal strand (a line keeps its subway identity).
+ *   5. Relaxation — a few passes nudging each node toward the median row of ALL
+ *      its neighbours, within the slack its column order allows, straightening
+ *      strands further.
+ *   6. Compaction — drop globally-unused rows and columns so the map is tight.
+ *   7. Label placement — `row >= 3 ? 'bottom' : 'top'`.
  *
  * Pure and order-stable: identical input (same node order, same `prereqs`)
- * always yields identical coordinates. The graph is assumed acyclic; a stray
- * cycle is tolerated (no infinite loop) — nodes still on the stack when no more
- * progress is possible fall back to depth 0.
+ * always yields identical coordinates.
  *
  * @param nodes   stations in a stable order
  * @param prereqs `to -> [from...]` adjacency (station ids only), as produced by
@@ -43,184 +59,132 @@ export function layoutStations(
   prereqs: Record<string, string[]>
 ): Record<string, LayoutResult> {
   const nodeIds = new Set(nodes.map(n => n.id));
+  const nodeIndex = new Map(nodes.map((n, i) => [n.id, i]));
+  const parentsOf = (id: string): string[] =>
+    (prereqs[id] || []).filter(p => nodeIds.has(p) && p !== id);
 
   // ---- 1. Topological column = 1 + deepest prerequisite column (roots at 0).
-  // Memoized depth resolution with an in-progress guard so a cycle can't loop
-  // forever — a node caught mid-resolution settles at column 0.
-  const colById = new Map<string, number>();
+  const asap = new Map<string, number>();
   const resolving = new Set<string>();
-
   const depthOf = (id: string): number => {
-    const memo = colById.get(id);
+    const memo = asap.get(id);
     if (memo !== undefined) return memo;
-    if (resolving.has(id)) return 0; // cycle guard: break the loop deterministically
+    if (resolving.has(id)) return 0; // cycle guard
     resolving.add(id);
-
-    // Only prerequisites that are themselves stations count toward depth.
-    const parents = (prereqs[id] || []).filter(p => nodeIds.has(p) && p !== id);
     let col = 0;
-    for (const p of parents) {
-      col = Math.max(col, depthOf(p) + 1);
-    }
-
+    for (const p of parentsOf(id)) col = Math.max(col, depthOf(p) + 1);
     resolving.delete(id);
-    colById.set(id, col);
+    asap.set(id, col);
     return col;
   };
-
   for (const n of nodes) depthOf(n.id);
 
-  // ---- 2. Order line bands so interconnected lines sit on adjacent rows. ----
-  // Each line still gets its own base row; we just cluster lines joined by
-  // cross-line edges next to each other (see orderLineBands), which shortens
-  // those edges and cuts crossings. Falls back to first-appearance order.
-  const lineByNode = new Map(nodes.map(n => [n.id, n.lineId]));
-  const appearOrder: string[] = [];
-  const seenLine = new Set<string>();
+  // dependents (consumers), station ids only.
+  const consumers = new Map<string, string[]>();
   for (const n of nodes) {
-    if (!seenLine.has(n.lineId)) {
-      seenLine.add(n.lineId);
-      appearOrder.push(n.lineId);
+    for (const p of parentsOf(n.id)) {
+      const list = consumers.get(p);
+      if (list) list.push(n.id);
+      else consumers.set(p, [n.id]);
     }
   }
-  const bandByLine = orderLineBands(appearOrder, nodes, prereqs, nodeIds);
 
-  // ---- 3. Pack rows column by column. A node prefers its band row; same-band
-  // collisions fan downward (band+1, band+2, …). Within a column nodes are
-  // ordered by (band, barycentre of placed prerequisites, node index), so a
-  // fan-in's targets stack in their sources' order instead of crossing. Because
-  // every prerequisite lives in a strictly earlier column, its position is
-  // already fixed when its dependents are placed. `occupied` keys every taken
-  // cell so two stations never share a col/row.
-  const nodeIndex = new Map(nodes.map((n, i) => [n.id, i]));
+  // ---- 2. Root-column pull. A node with no prerequisites moves to just left of
+  // its earliest consumer (a consumer's column is >= 1, so this stays >= 0).
+  const colById = new Map<string, number>();
+  for (const n of nodes) {
+    if (parentsOf(n.id).length) {
+      colById.set(n.id, asap.get(n.id)!);
+      continue;
+    }
+    const cs = consumers.get(n.id);
+    const col = cs && cs.length ? Math.min(...cs.map(c => asap.get(c)!)) - 1 : asap.get(n.id)!;
+    colById.set(n.id, Math.max(0, col));
+  }
+
+  const cols = [...new Set([...colById.values()])].sort((a, b) => a - b);
   const byCol = new Map<number, string[]>();
   for (const n of nodes) {
-    const col = colById.get(n.id) ?? 0;
-    const list = byCol.get(col);
+    const c = colById.get(n.id)!;
+    const list = byCol.get(c);
     if (list) list.push(n.id);
-    else byCol.set(col, [n.id]);
+    else byCol.set(c, [n.id]);
   }
 
-  const occupied = new Set<string>(); // `${col},${row}`
+  // ---- 3. Crossing reduction: iterated median ordering by neighbour ranks.
+  const order = new Map<number, string[]>();
+  for (const c of cols) {
+    order.set(c, [...byCol.get(c)!].sort((a, b) => nodeIndex.get(a)! - nodeIndex.get(b)!));
+  }
+  const ranks = (): Map<string, number> => {
+    const r = new Map<string, number>();
+    for (const c of cols) order.get(c)!.forEach((id, i) => r.set(id, i));
+    return r;
+  };
+  for (let s = 0; s < CROSSING_SWEEPS; s++) {
+    let rank = ranks();
+    const reorder = (c: number, neigh: (id: string) => string[]) => {
+      const arr = order.get(c)!;
+      const key = new Map<string, number>();
+      for (const id of arr) {
+        const ns = neigh(id).map(n => rank.get(n)).filter((v): v is number => v !== undefined);
+        key.set(id, ns.length ? median(ns) : rank.get(id)!);
+      }
+      order.set(c, [...arr].sort((a, b) => (key.get(a)! - key.get(b)!) || (rank.get(a)! - rank.get(b)!)));
+    };
+    for (const c of cols) reorder(c, parentsOf);
+    rank = ranks();
+    for (const c of [...cols].reverse()) reorder(c, id => consumers.get(id) ?? []);
+  }
+
+  // ---- 4. Strand packing: row = barycentre of placed prerequisites; same-column
+  // order is preserved (rows strictly increasing) and packed from the top.
   const pos = new Map<string, { col: number; row: number }>();
+  for (const c of cols) {
+    let prev = -1;
+    for (const id of order.get(c)!) {
+      const pr = parentsOf(id).map(p => pos.get(p)?.row).filter((v): v is number => v !== undefined);
+      const desired = pr.length ? pr.reduce((a, b) => a + b, 0) / pr.length : prev + 1;
+      const row = Math.max(Math.round(desired), prev + 1);
+      pos.set(id, { col: c, row });
+      prev = row;
+    }
+  }
 
-  for (const col of [...byCol.keys()].sort((a, b) => a - b)) {
-    const ids = byCol.get(col)!;
-
-    const bary = new Map<string, number>();
-    for (const id of ids) {
-      const parents = (prereqs[id] || []).filter(p => pos.has(p));
-      if (parents.length) {
-        bary.set(id, parents.reduce((a, p) => a + pos.get(p)!.row, 0) / parents.length);
+  // ---- 5. Relaxation: pull each node toward the median row of all its
+  // neighbours, within the slack its column order allows.
+  for (let s = 0; s < RELAX_PASSES; s++) {
+    for (const c of cols) {
+      const arr = order.get(c)!;
+      for (let i = 0; i < arr.length; i++) {
+        const id = arr[i];
+        const ns = [...parentsOf(id), ...(consumers.get(id) ?? [])]
+          .map(n => pos.get(n)?.row)
+          .filter((v): v is number => v !== undefined);
+        if (!ns.length) continue;
+        const lo = i === 0 ? -Infinity : pos.get(arr[i - 1])!.row + 1;
+        const hi = i === arr.length - 1 ? Infinity : pos.get(arr[i + 1])!.row - 1;
+        pos.get(id)!.row = Math.max(lo, Math.min(hi, Math.round(median(ns))));
       }
     }
-
-    const ordered = [...ids].sort((a, b) => {
-      const ba = bandByLine.get(lineByNode.get(a)!) ?? 0;
-      const bb = bandByLine.get(lineByNode.get(b)!) ?? 0;
-      if (ba !== bb) return ba - bb;
-      const ya = bary.get(a);
-      const yb = bary.get(b);
-      if (ya !== undefined && yb !== undefined && ya !== yb) return ya - yb;
-      if (ya !== undefined && yb === undefined) return -1;
-      if (ya === undefined && yb !== undefined) return 1;
-      return nodeIndex.get(a)! - nodeIndex.get(b)!;
-    });
-
-    for (const id of ordered) {
-      const band = bandByLine.get(lineByNode.get(id)!) ?? 0;
-      let row = band;
-      while (occupied.has(`${col},${row}`)) row += 1;
-      occupied.add(`${col},${row}`);
-      pos.set(id, { col, row });
-    }
   }
 
-  // ---- 4. Clearance: bump stations off any unrelated edge's straight run. ----
-  // Distinct line bands already keep different lines on different rows (so their
-  // horizontal runs don't overlap); this pass fixes the remaining case the user
-  // hit — a line passing straight through an unrelated station — by moving the
-  // offending station down to a clear row. The map may grow taller, which is fine.
-  spreadForClearance(nodes, nodeIds, prereqs, pos, occupied);
+  // ---- 6. Compaction: drop globally-unused rows and columns.
+  const remap = (key: 'row' | 'col') => {
+    const used = [...new Set([...pos.values()].map(p => p[key]))].sort((a, b) => a - b);
+    const m = new Map(used.map((v, i) => [v, i]));
+    for (const p of pos.values()) p[key] = m.get(p[key])!;
+  };
+  remap('row');
+  remap('col');
 
-  // ---- 5. Materialize results with the seed label-placement heuristic. ----
+  // ---- 7. Materialize results with the seed label-placement heuristic.
   const result: Record<string, LayoutResult> = {};
   for (const n of nodes) {
     const p = pos.get(n.id)!;
-    result[n.id] = {
-      col: p.col,
-      row: p.row,
-      lp: p.row >= 3 ? 'bottom' : 'top',
-    };
+    result[n.id] = { col: p.col, row: p.row, lp: p.row >= 3 ? 'bottom' : 'top' };
   }
-
   return result;
-}
-
-/**
- * Order line bands so lines joined by cross-line edges land on adjacent rows.
- *
- * Builds a weighted line-adjacency graph (how many edges cross between each pair
- * of lines), then greedily appends the unplaced line most strongly connected to
- * the lines already placed, seeding and breaking ties by first-appearance order.
- * The result clusters interconnected lines together — shortening cross-line
- * edges and cutting crossings — while disconnected lines keep first-appearance
- * order. Pure and deterministic (iteration follows `appearOrder`).
- *
- * @returns `lineId -> band index` (0 = top band)
- */
-function orderLineBands(
-  appearOrder: string[],
-  nodes: LayoutNode[],
-  prereqs: Record<string, string[]>,
-  nodeIds: Set<string>,
-): Map<string, number> {
-  const lineByNode = new Map(nodes.map(n => [n.id, n.lineId]));
-  const weight = new Map<string, Map<string, number>>();
-  const add = (a: string, b: string) => {
-    let m = weight.get(a);
-    if (!m) {
-      m = new Map();
-      weight.set(a, m);
-    }
-    m.set(b, (m.get(b) ?? 0) + 1);
-  };
-  for (const n of nodes) {
-    for (const p of prereqs[n.id] || []) {
-      if (!nodeIds.has(p) || p === n.id) continue;
-      const lb = lineByNode.get(p)!;
-      if (lb === n.lineId) continue; // same-line edges don't pull bands together
-      add(n.lineId, lb);
-      add(lb, n.lineId);
-    }
-  }
-
-  const idx = new Map(appearOrder.map((l, i) => [l, i]));
-  const remaining = new Set(appearOrder);
-  const placed: string[] = [];
-  while (remaining.size) {
-    let best: string | null = null;
-    let bestScore = -1;
-    let bestIdx = Infinity;
-    for (const l of appearOrder) {
-      if (!remaining.has(l)) continue;
-      let score = 0;
-      const w = weight.get(l);
-      if (w) for (const p of placed) score += w.get(p) ?? 0;
-      const li = idx.get(l)!;
-      if (score > bestScore || (score === bestScore && li < bestIdx)) {
-        best = l;
-        bestScore = score;
-        bestIdx = li;
-      }
-    }
-    placed.push(best!);
-    remaining.delete(best!);
-  }
-
-  const bandByLine = new Map<string, number>();
-  placed.forEach((l, i) => bandByLine.set(l, i));
-  return bandByLine;
 }
 
 /**
@@ -230,19 +194,15 @@ function orderLineBands(
  * drag), so re-flowing a whole map on a structural edit (or on demand via
  * Auto-arrange) discards nothing — see ADR 0005.
  *
- * The band line is each station's primary line (`lines[0]`), matching how the
- * renderer picks a station's primary color; an interchange therefore bands on
- * its first line. Every station is expected to sit on at least one line; a
- * station with no lines falls back to a single shared empty band. Stations are
- * fed in array order, the stable order callers already keep (append on create,
- * in-place on update, filtered on delete), so band assignment and clearance
- * never jitter between edits.
+ * Stations are fed in array order, the stable order callers already keep (append
+ * on create, in-place on update, filtered on delete), so ordering never jitters
+ * between edits.
  *
  * Only `col`/`row`/`lp` change; every other field (status, lines, metadata) is
  * preserved. Status is settled separately by `recompute`.
  */
 export function relayoutStations(stations: Station[], edges: Edge[]): Station[] {
-  const nodes: LayoutNode[] = stations.map(s => ({ id: s.id, lineId: s.lines[0] ?? '' }));
+  const nodes: LayoutNode[] = stations.map(s => ({ id: s.id }));
 
   const prereqs: Record<string, string[]> = {};
   for (const e of edges) {
@@ -254,122 +214,4 @@ export function relayoutStations(stations: Station[], edges: Edge[]): Station[] 
     const pos = layout[s.id];
     return pos ? { ...s, col: pos.col, row: pos.row, lp: pos.lp } : s;
   });
-}
-
-/** A station-to-station dependency edge, derived from the prereq graph. */
-interface LayoutEdge {
-  from: string;
-  to: string;
-  /** Diagonal-first flag, from the shared `resolveDf` helper in routing.ts. */
-  df: boolean;
-}
-
-/**
- * The interior grid cells an edge's *straight run* passes through, endpoints
- * excluded. A 45° transit edge is a short diagonal stub plus one straight run;
- * the straight run is the part that visibly crosses intermediate stations:
- *
- *  - same column  → vertical run down that column;
- *  - same row     → horizontal run along that row;
- *  - otherwise    → horizontal run along the target row (df) or source row (!df),
- *                   matching the bend choice `resolveRouting` makes.
- *
- * Mirrors the geometry in routing.ts but works in grid space (col/row), which is
- * all the layout needs to keep lines off unrelated stations.
- */
-function edgeRunCells(
-  e: LayoutEdge,
-  pos: Map<string, { col: number; row: number }>,
-): { col: number; row: number }[] {
-  const a = pos.get(e.from)!;
-  const b = pos.get(e.to)!;
-  const cells: { col: number; row: number }[] = [];
-  if (a.col === b.col) {
-    const lo = Math.min(a.row, b.row);
-    const hi = Math.max(a.row, b.row);
-    for (let r = lo + 1; r < hi; r++) cells.push({ col: a.col, row: r });
-    return cells;
-  }
-  const runRow = a.row === b.row ? a.row : e.df ? b.row : a.row;
-  const lo = Math.min(a.col, b.col);
-  const hi = Math.max(a.col, b.col);
-  for (let c = lo + 1; c < hi; c++) cells.push({ col: c, row: runRow });
-  return cells;
-}
-
-/**
- * Iteratively move stations off any unrelated edge's straight run. Each pass
- * rebuilds the run map from current positions (so a move that shifts an edge is
- * accounted for), finds the first blocked station in node order, and slides it
- * down to the next row that is neither occupied nor on an unrelated run. Bounded
- * and order-stable: identical input always yields identical output.
- *
- * Note: the victim slides strictly downward, so to find clearance this pass can
- * push a station past its own line band onto a row nominally belonging to another
- * band. That is an accepted refinement of #7's "pack within the line's band"
- * rule — keeping a line off an unrelated station wins over strict band fidelity.
- */
-function spreadForClearance(
-  nodes: LayoutNode[],
-  nodeIds: Set<string>,
-  prereqs: Record<string, string[]>,
-  pos: Map<string, { col: number; row: number }>,
-  occupied: Set<string>,
-): void {
-  // Edges (station→station) + their df flag, via the shared resolveDf helper so
-  // the clearance geometry matches what resolveRouting draws. Degrees (hence df)
-  // depend only on graph shape, so they're computed once.
-  const edges: LayoutEdge[] = [];
-  const inDeg: Record<string, number> = {};
-  const outDeg: Record<string, number> = {};
-  for (const n of nodes) {
-    for (const p of prereqs[n.id] || []) {
-      if (!nodeIds.has(p) || p === n.id) continue;
-      inDeg[n.id] = (inDeg[n.id] || 0) + 1;
-      outDeg[p] = (outDeg[p] || 0) + 1;
-      edges.push({ from: p, to: n.id, df: false });
-    }
-  }
-  for (const e of edges) {
-    e.df = resolveDf((inDeg[e.to] || 0) > 1, (outDeg[e.from] || 0) > 1);
-  }
-
-  // True when some edge NOT incident to `nodeId` runs through (col,row).
-  const blockedAt = (
-    runs: Map<string, LayoutEdge[]>,
-    col: number,
-    row: number,
-    nodeId: string,
-  ): boolean =>
-    (runs.get(`${col},${row}`) || []).some(e => e.from !== nodeId && e.to !== nodeId);
-
-  const cap = nodes.length * 8 + 16;
-  for (let iter = 0; iter < cap; iter++) {
-    // Rebuild the run map from current positions.
-    const runs = new Map<string, LayoutEdge[]>();
-    for (const e of edges) {
-      for (const c of edgeRunCells(e, pos)) {
-        const key = `${c.col},${c.row}`;
-        const list = runs.get(key);
-        if (list) list.push(e);
-        else runs.set(key, [e]);
-      }
-    }
-
-    // First station sitting on an unrelated run (stable node order).
-    const victim = nodes.find(n => {
-      const p = pos.get(n.id)!;
-      return blockedAt(runs, p.col, p.row, n.id);
-    });
-    if (!victim) return; // all clear
-
-    const p = pos.get(victim.id)!;
-    occupied.delete(`${p.col},${p.row}`);
-    let row = p.row + 1;
-    while (occupied.has(`${p.col},${row}`) || blockedAt(runs, p.col, row, victim.id)) {
-      row += 1;
-    }
-    occupied.add(`${p.col},${row}`);
-    pos.set(victim.id, { col: p.col, row });
-  }
 }

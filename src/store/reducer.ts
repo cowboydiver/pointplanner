@@ -261,13 +261,13 @@ export function reducer(state: StoreState, action: Action): StoreState {
       const blocked = collectSelfAndDescendants(id, idx.dependents);
       const prereqs = data.prereqs.filter(p => idx.stationById[p] && !blocked.has(p));
 
-      // A structural edit changes the dependency graph or the station's line
-      // membership — both feed the layout (col from depth, row band from the
-      // primary line), so the map is re-flowed. A metadata-only edit (rename,
-      // owner, …) keeps every position untouched and never re-flows. The primary
-      // line (`lines[0]`) is compared on its own: reordering lines to swap the
-      // primary keeps the same set but changes the band and recolors edges, so it
-      // must re-flow too. ADR 0005.
+      // A structural edit changes the dependency graph, which drives the whole
+      // layout (positions are derived from graph structure now, not line bands),
+      // so the map is re-flowed. A metadata-only edit (rename, owner, …) keeps
+      // every position untouched and never re-flows. The primary line (`lines[0]`)
+      // is compared on its own: swapping the primary recolors a station's edges,
+      // so it is still treated as structural to refresh them — it no longer moves
+      // the station. ADR 0005 / 0006.
       const prevPrereqs = state.edges.filter(e => e.to === id).map(e => e.from);
       const structural =
         !sameSet(prevPrereqs, prereqs) ||

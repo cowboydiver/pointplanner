@@ -122,10 +122,10 @@ describe('UPDATE_TASK', () => {
     expect(next.selectedId).toBe('c');
   });
 
-  it('re-flows when the primary line changes even if the membership set is unchanged', () => {
+  it('recolors edges when the primary line changes, keeping the structural position', () => {
     // b sits on [a]; make it an interchange on both lines, then swap the primary
-    // to "b" while keeping the same set. Band derives from lines[0], so the row
-    // must change — a same-set reorder still counts as structural.
+    // to "b" while keeping the same set. Positioning is structural now, so the
+    // station does not move — but its incident edges follow the new primary line.
     const interchange = reducer(makeState(), {
       type: 'UPDATE_TASK',
       id: 'b',
@@ -140,8 +140,13 @@ describe('UPDATE_TASK', () => {
     });
     const after = swapped.stations.find(s => s.id === 'b')!;
     expect(after.lines).toEqual(['b', 'a']);
-    // Band moved from line "a" to line "b", so the row is re-derived (re-flowed).
-    expect(after.row).not.toBe(before.row);
+    // A pure primary-line swap doesn't change the dependency graph, so the
+    // position is unchanged…
+    expect([after.col, after.row]).toEqual([before.col, before.row]);
+    // …the rebuilt incoming edge takes the new primary line ("b")…
+    expect(swapped.edges.find(e => e.from === 'a' && e.to === 'b')!.line).toBe('b');
+    // …while the outgoing edge keeps "a", which is still in b's line set.
+    expect(swapped.edges.find(e => e.from === 'b' && e.to === 'c')!.line).toBe('a');
   });
 
   it('does NOT move the station on a metadata-only edit (prereqs unchanged)', () => {
