@@ -1,5 +1,5 @@
 import type { Edge } from '../types';
-import type { Point } from './routing';
+import { dist, type Point } from './routing';
 
 /**
  * Render-time disambiguation of *residual collinear cross-line overlap*.
@@ -23,12 +23,14 @@ import type { Point } from './routing';
  * (horizontal, vertical, or exactly 45° diagonal, the only shapes `routePoints`
  * emits). Same-line overlap collapses onto one lane and is left alone.
  *
- * Invariant that keeps an edge connected: every leg returns to offset 0 at its
- * own endpoints (always edge waypoints — a station or a bend), so consecutive
- * legs of one edge still meet exactly and the rounded-corner logic in
- * `pointsToPath` is untouched. Lanes only exist in a leg's interior; the 45°
- * diverge/converge junctions are reported as *sharp* corners so they render
- * mitred while normal routing bends stay rounded.
+ * Where a bundled line meets a real *station* (an edge endpoint, always at a grid
+ * centre) it returns to offset 0 with a sharp 45° notch — the line visibly touches
+ * its stop. Where it meets an interior routing *bend* (the turn where it joins or
+ * leaves the corridor) it stays in its lane: the bend is shifted sideways onto the
+ * lane and the adjacent non-collinear leg is dragged to that shifted point, so the
+ * line slides straight into its lane instead of spiking up to the centerline first.
+ * Consecutive legs still meet exactly (shared waypoint), so the rounded-corner logic
+ * in `pointsToPath` is untouched; only the 45° notches/peels are reported as *sharp*.
  */
 
 const SQRT1_2 = Math.SQRT1_2; // 1/√2
@@ -52,7 +54,6 @@ interface Leg {
   a: Point;
   b: Point;
   line: string;
-  edgeIndex: number;
 }
 
 type Family = 'h' | 'v' | 'd+' | 'd-';
@@ -215,24 +216,52 @@ interface ControlPoint {
   sharp: boolean;
 }
 
+interface LegResult {
+  pts: Point[];
+  sharp: number[];
+  changed: boolean;
+}
+
+/** Signed lane offset for `line` at a param, or 0 if it is not bundled there. */
+function regionOffset(regions: Region[], line: string, param: number): number {
+  for (const r of regions) {
+    if (param >= r.lo - EPS && param <= r.hi + EPS) {
+      const o = r.offsetByLine.get(line);
+      if (o !== undefined) return o;
+    }
+  }
+  return 0;
+}
+
 /**
- * Rewrite one leg into an offset polyline. The leg runs at offset 0 at both its
- * own endpoints, sits at its fixed lane offset wherever it lies inside a region
- * it belongs to, and joins the two with exact-45° diagonals (sharp corners). A
- * sub-run too short to fit two 45° joins is left on the centerline.
+ * Rewrite one leg into an offset polyline.
+ *
+ * `startZero`/`endZero` say whether the leg's `a`/`b` end is a real station — only
+ * there does the line return to the centerline (with a sharp 45° notch). At an end
+ * that is an interior bend the line stays in its lane, so the endpoint pixel is the
+ * *lane* point; the caller drags the adjacent leg onto it. Inside the leg, a region
+ * boundary produces a sharp 45° peel between the centerline and the lane. Any sub-run
+ * too short to fit its joins is left on the centerline.
  */
 function offsetLeg(
   leg: Leg,
   ll: LegLine,
   regions: Region[],
-): { pts: Point[]; sharp: number[]; changed: boolean } {
+  startZero: boolean,
+  endZero: boolean,
+): LegResult {
   const pa = paramOf(ll, leg.a);
   const pb = paramOf(ll, leg.b);
   const lo = Math.min(pa, pb);
   const hi = Math.max(pa, pb);
   const spp = screenPerParam(ll.family);
+  const flip = pa > pb;
+  // Re-key the station flags into param space (lo end vs hi end).
+  const loZero = flip ? endZero : startZero;
+  const hiZero = flip ? startZero : endZero;
 
-  // Cut the leg at every region boundary that falls inside it.
+  // Cut the leg at every region boundary that falls inside it, then label each
+  // sub-interval with this line's signed offset there (lane or 0).
   const cuts = new Set<number>([lo, hi]);
   for (const r of regions) {
     if (r.hi <= lo || r.lo >= hi) continue;
@@ -241,64 +270,144 @@ function offsetLeg(
   }
   const xs = [...cuts].filter(x => x >= lo - 1e-9 && x <= hi + 1e-9).sort((a, b) => a - b);
 
+  const subs: Array<{ s: number; e: number; off: number }> = [];
+  for (let i = 0; i < xs.length - 1; i++) {
+    const s = xs[i];
+    const e = xs[i + 1];
+    if (e - s < EPS) continue;
+    let off = regionOffset(regions, leg.line, (s + e) / 2);
+    // A sub-run too short to host its 45° joins stays on the centerline.
+    const need = (Math.abs(off) / spp) * ((s <= lo + EPS && !loZero) || (e >= hi - EPS && !hiZero) ? 1 : 2);
+    if (Math.abs(off) > EPS && e - s < need) off = 0;
+    const last = subs[subs.length - 1];
+    if (last && Math.abs(last.off - off) < EPS) last.e = e;
+    else subs.push({ s, e, off });
+  }
+
+  if (!subs.some(s => Math.abs(s.off) > EPS)) {
+    return { pts: [leg.a, leg.b], sharp: [], changed: false };
+  }
+
   const cps: ControlPoint[] = [];
   const push = (cp: ControlPoint) => {
-    const last = cps[cps.length - 1];
-    if (last && Math.abs(last.param - cp.param) < EPS && Math.abs(last.off - cp.off) < EPS) {
-      last.sharp = last.sharp || cp.sharp;
+    const prev = cps[cps.length - 1];
+    if (prev && Math.abs(prev.param - cp.param) < EPS && Math.abs(prev.off - cp.off) < EPS) {
+      prev.sharp = prev.sharp || cp.sharp;
       return;
     }
     cps.push(cp);
   };
 
-  push({ param: lo, off: 0, sharp: false });
-  let changed = false;
-
-  for (let i = 0; i < xs.length - 1; i++) {
-    const s = xs[i];
-    const e = xs[i + 1];
-    if (e - s < EPS) continue;
-    const mid = (s + e) / 2;
-
-    let off = 0;
-    for (const r of regions) {
-      if (r.lo <= mid && mid <= r.hi) {
-        const o = r.offsetByLine.get(leg.line);
-        if (o !== undefined) { off = o; break; }
-      }
+  // lo end: notch from the centerline if it is a station, else start in-lane.
+  const firstOff = subs[0].off;
+  if (loZero) {
+    push({ param: lo, off: 0, sharp: false });
+    if (Math.abs(firstOff) > EPS) {
+      const d = Math.min(Math.abs(firstOff) / spp, subs[0].e - subs[0].s);
+      push({ param: lo + d, off: firstOff, sharp: true });
     }
-    if (Math.abs(off) < EPS) continue; // centerline stretch — neighbouring joins cover it
-
-    const delta = Math.abs(off) / spp; // param length of a 45° join (screen length = |off|)
-    if (e - s < 2 * delta) continue;   // short run: leave this stretch on the centerline
-
-    changed = true;
-    // Diverge: leave the centerline at s (sharp peel point if mid-leg).
-    if (Math.abs(s - lo) > EPS) push({ param: s, off: 0, sharp: true });
-    push({ param: s + delta, off, sharp: true });
-    // Converge: return to the centerline at e (sharp peel-in if mid-leg).
-    push({ param: e - delta, off, sharp: true });
-    if (Math.abs(e - hi) > EPS) push({ param: e, off: 0, sharp: true });
+  } else {
+    push({ param: lo, off: firstOff, sharp: Math.abs(firstOff) > EPS });
   }
 
-  push({ param: hi, off: 0, sharp: false });
+  // Interior region boundaries: a centred 45° peel between the two offsets.
+  for (let i = 0; i < subs.length - 1; i++) {
+    const L = subs[i];
+    const R = subs[i + 1];
+    if (Math.abs(L.off - R.off) < EPS) continue;
+    const b = L.e;
+    const delta = Math.abs(R.off - L.off) / spp;
+    const dl = Math.min(delta / 2, (L.e - L.s) / 2);
+    const dr = Math.min(delta / 2, (R.e - R.s) / 2);
+    push({ param: b - dl, off: L.off, sharp: true });
+    push({ param: b + dr, off: R.off, sharp: true });
+  }
 
-  if (!changed) return { pts: [leg.a, leg.b], sharp: [], changed: false };
+  // hi end: notch back to the centerline if it is a station, else end in-lane.
+  const lastOff = subs[subs.length - 1].off;
+  if (hiZero) {
+    if (Math.abs(lastOff) > EPS) {
+      const d = Math.min(Math.abs(lastOff) / spp, subs[subs.length - 1].e - subs[subs.length - 1].s);
+      push({ param: hi - d, off: lastOff, sharp: true });
+    }
+    push({ param: hi, off: 0, sharp: false });
+  } else {
+    push({ param: hi, off: lastOff, sharp: Math.abs(lastOff) > EPS });
+  }
 
   let mapped = cps.map(cp => {
     const base = pointAt(ll, cp.param);
     const pt: Point = [base[0] + ll.normal[0] * cp.off, base[1] + ll.normal[1] * cp.off];
     return { pt, sharp: cp.sharp };
   });
-  if (pa > pb) mapped = mapped.reverse();
+  if (flip) mapped = mapped.reverse();
 
-  // Snap endpoints to the exact originals so legs still meet exactly.
-  mapped[0].pt = leg.a;
-  mapped[mapped.length - 1].pt = leg.b;
+  // Snap a centerline endpoint to the exact original (float cleanup); a lane
+  // endpoint is left as computed for the caller to reconcile.
+  if (startZero) mapped[0].pt = leg.a;
+  if (endZero) mapped[mapped.length - 1].pt = leg.b;
 
   const sharp: number[] = [];
   mapped.forEach((m, i) => { if (m.sharp) sharp.push(i); });
   return { pts: mapped.map(m => m.pt), sharp, changed: true };
+}
+
+/**
+ * Rewrite one edge: offset each of its legs, then reconcile shared interior bends
+ * so a leg that stayed on the centerline is dragged onto its neighbour's lane
+ * point (the line slides into its lane without spiking to the centerline first).
+ * Returns null if nothing changed.
+ */
+function offsetEdge(points: Point[], line: string, regionsByKey: Map<string, Region[]>): OffsetEdge | null {
+  const n = points.length - 1;
+  if (n < 1) return null;
+
+  const legs: LegResult[] = [];
+  for (let i = 0; i < n; i++) {
+    const a = points[i];
+    const b = points[i + 1];
+    const ll = legLine(a, b);
+    const regions = ll && regionsByKey.get(ll.key);
+    if (!ll || !regions) {
+      legs.push({ pts: [a, b], sharp: [], changed: false });
+      continue;
+    }
+    legs.push(offsetLeg({ a, b, line }, ll, regions, i === 0, i === n - 1));
+  }
+
+  if (!legs.some(l => l.changed)) return null;
+
+  // Reconcile each interior bend: if one adjacent leg sits in a lane there, pull
+  // the other onto the same point so the two legs still meet exactly.
+  for (let i = 1; i < n; i++) {
+    const left = legs[i - 1];
+    const right = legs[i];
+    const center = points[i];
+    const lp = left.pts[left.pts.length - 1];
+    const rp = right.pts[0];
+    const lLane = dist(lp, center) > EPS;
+    const rLane = dist(rp, center) > EPS;
+    let chosen = center;
+    if (lLane && rLane) chosen = dist(lp, center) >= dist(rp, center) ? lp : rp;
+    else if (lLane) chosen = lp;
+    else if (rLane) chosen = rp;
+    left.pts[left.pts.length - 1] = chosen;
+    right.pts[0] = chosen;
+  }
+
+  const merged: Point[] = [];
+  const sharp = new Set<number>();
+  legs.forEach((leg, i) => {
+    const start = merged.length;
+    if (i === 0) {
+      merged.push(...leg.pts);
+      leg.sharp.forEach(si => sharp.add(start + si));
+    } else {
+      merged.push(...leg.pts.slice(1));
+      leg.sharp.forEach(si => { if (si >= 1) sharp.add(start + si - 1); });
+    }
+  });
+  return { points: merged, sharp };
 }
 
 /**
@@ -320,19 +429,15 @@ export function offsetCollinearLegs(
   const rankOf = new Map(lineOrder.map((id, i) => [id, i]));
   const laneRank = (line: string) => (rankOf.has(line) ? rankOf.get(line)! : lineOrder.length);
 
-  // 1. Decompose every edge into legs, tagged with their host line.
-  interface TaggedLeg extends Leg { ll: LegLine; }
-  const groups = new Map<string, TaggedLeg[]>();
-  const edgeLegs: TaggedLeg[][] = routed.map(() => []);
-
-  routed.forEach(({ edge, points }, ei) => {
+  // 1. Decompose every edge into legs, grouped by their host line.
+  const groups = new Map<string, Leg[]>();
+  routed.forEach(({ edge, points }) => {
     for (let k = 0; k < points.length - 1; k++) {
       const a = points[k];
       const b = points[k + 1];
       const ll = legLine(a, b);
       if (!ll) continue;
-      const leg: TaggedLeg = { a, b, line: edge.line, edgeIndex: ei, ll };
-      edgeLegs[ei].push(leg);
+      const leg: Leg = { a, b, line: edge.line };
       const bucket = groups.get(ll.key);
       if (bucket) bucket.push(leg);
       else groups.set(ll.key, [leg]);
@@ -344,41 +449,17 @@ export function offsetCollinearLegs(
   for (const [key, legs] of groups) {
     const distinctLines = new Set(legs.map(l => l.line));
     if (distinctLines.size < 2) continue; // only different lines matter
-    const regions = bundleRegions(legs, legs[0].ll, laneRank, params.lanePitch);
+    const ll = legLine(legs[0].a, legs[0].b)!;
+    const regions = bundleRegions(legs, ll, laneRank, params.lanePitch);
     if (regions.length) regionsByKey.set(key, regions);
   }
   if (regionsByKey.size === 0) return new Map();
 
-  // 3. Rewrite each affected leg, then splice the legs of each edge into one path.
+  // 3. Rewrite each edge whose legs touch a bundle region.
   const result = new Map<number, OffsetEdge>();
-
-  edgeLegs.forEach((legs, ei) => {
-    let changed = false;
-    const rewritten = legs.map(leg => {
-      const regions = regionsByKey.get(leg.ll.key);
-      if (!regions) return { pts: [leg.a, leg.b] as Point[], sharp: [] as number[] };
-      const r = offsetLeg(leg, leg.ll, regions);
-      if (r.changed) changed = true;
-      return { pts: r.pts, sharp: r.sharp };
-    });
-
-    if (!changed) return;
-
-    // Concatenate legs, dropping the duplicated shared waypoint between them, and
-    // carry each leg's sharp indices into the merged coordinate space.
-    const merged: Point[] = [];
-    const sharp = new Set<number>();
-    rewritten.forEach((leg, i) => {
-      const start = merged.length;
-      if (i === 0) {
-        merged.push(...leg.pts);
-        leg.sharp.forEach(si => sharp.add(start + si));
-      } else {
-        merged.push(...leg.pts.slice(1));
-        leg.sharp.forEach(si => { if (si >= 1) sharp.add(start + si - 1); });
-      }
-    });
-    result.set(ei, { points: merged, sharp });
+  routed.forEach(({ edge, points }, ei) => {
+    const offset = offsetEdge(points, edge.line, regionsByKey);
+    if (offset) result.set(ei, offset);
   });
 
   return result;
