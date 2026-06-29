@@ -214,26 +214,18 @@ interface LegResult {
   changed: boolean;
 }
 
-/** Signed lane offset for `line` at a param, or 0 if it is not bundled there. */
-function regionOffset(regions: Region[], line: string, param: number): number {
-  for (const r of regions) {
-    if (param >= r.lo - EPS && param <= r.hi + EPS) {
-      const o = r.offsetByLine.get(line);
-      if (o !== undefined) return o;
-    }
-  }
-  return 0;
-}
-
 /**
  * Rewrite one leg into an offset polyline.
  *
- * `startZero`/`endZero` say whether the leg's `a`/`b` end is a real station — only
- * there does the line return to the centerline (with a 45° notch). At an end that is
- * an interior bend the line stays in its lane, so the endpoint pixel is the *lane*
- * point; the caller drags the adjacent leg onto it. Inside the leg, a region boundary
- * produces a 45° peel between the centerline and the lane. Any sub-run too short to
- * fit its joins is left on the centerline.
+ * A leg carries a *single* lane offset for its whole length — the line slides into
+ * its lane and stays there, passing any station it doesn't serve in a straight line.
+ * It only returns to the centerline at a real *station* (`startZero`/`endZero`, an
+ * edge endpoint), with a 45° notch so it visibly touches its stop. At an end that is
+ * an interior bend it stays in its lane (endpoint pixel = lane point; the caller drags
+ * the adjacent leg onto it). Crucially it never peels back to the centerline at a bare
+ * bundle-region boundary mid-leg — that used to make a continuing line dip to touch a
+ * passing station that merely marked where the *other* lines left. Legs too short to
+ * fit their notch(es) are left on the centerline.
  */
 function offsetLeg(
   leg: Leg,
@@ -252,76 +244,38 @@ function offsetLeg(
   const loZero = flip ? endZero : startZero;
   const hiZero = flip ? startZero : endZero;
 
-  // Cut the leg at every region boundary that falls inside it, then label each
-  // sub-interval with this line's signed offset there (lane or 0).
-  const cuts = new Set<number>([lo, hi]);
+  // One lane for the whole leg: this line's offset in the region it overlaps most
+  // (a leg spanning two differently-offset regions is vanishingly rare here).
+  let off = 0;
+  let bestOverlap = 0;
   for (const r of regions) {
-    if (r.hi <= lo || r.lo >= hi) continue;
-    cuts.add(Math.max(r.lo, lo));
-    cuts.add(Math.min(r.hi, hi));
+    const s = Math.max(r.lo, lo);
+    const e = Math.min(r.hi, hi);
+    if (e - s <= EPS) continue;
+    const o = r.offsetByLine.get(leg.line);
+    if (o === undefined || Math.abs(o) < EPS) continue;
+    if (e - s > bestOverlap) { bestOverlap = e - s; off = o; }
   }
-  const xs = [...cuts].filter(x => x >= lo - 1e-9 && x <= hi + 1e-9).sort((a, b) => a - b);
+  if (Math.abs(off) < EPS) return { pts: [leg.a, leg.b], changed: false };
 
-  const subs: Array<{ s: number; e: number; off: number }> = [];
-  for (let i = 0; i < xs.length - 1; i++) {
-    const s = xs[i];
-    const e = xs[i + 1];
-    if (e - s < EPS) continue;
-    let off = regionOffset(regions, leg.line, (s + e) / 2);
-    // A sub-run too short to host its 45° joins stays on the centerline.
-    const need = (Math.abs(off) / spp) * ((s <= lo + EPS && !loZero) || (e >= hi - EPS && !hiZero) ? 1 : 2);
-    if (Math.abs(off) > EPS && e - s < need) off = 0;
-    const last = subs[subs.length - 1];
-    if (last && Math.abs(last.off - off) < EPS) last.e = e;
-    else subs.push({ s, e, off });
-  }
-
-  if (!subs.some(s => Math.abs(s.off) > EPS)) {
-    return { pts: [leg.a, leg.b], changed: false };
-  }
+  // A station end needs a 45° notch back to the centerline; ensure the leg is long
+  // enough to host them, else leave it on the centerline.
+  const d = Math.abs(off) / spp;
+  const needed = (loZero ? d : 0) + (hiZero ? d : 0);
+  if (hi - lo < needed) return { pts: [leg.a, leg.b], changed: false };
 
   const cps: ControlPoint[] = [];
-  const push = (cp: ControlPoint) => {
-    const prev = cps[cps.length - 1];
-    if (prev && Math.abs(prev.param - cp.param) < EPS && Math.abs(prev.off - cp.off) < EPS) return;
-    cps.push(cp);
-  };
-
-  // lo end: notch from the centerline if it is a station, else start in-lane.
-  const firstOff = subs[0].off;
   if (loZero) {
-    push({ param: lo, off: 0 });
-    if (Math.abs(firstOff) > EPS) {
-      const d = Math.min(Math.abs(firstOff) / spp, subs[0].e - subs[0].s);
-      push({ param: lo + d, off: firstOff });
-    }
+    cps.push({ param: lo, off: 0 });
+    cps.push({ param: lo + d, off });
   } else {
-    push({ param: lo, off: firstOff });
+    cps.push({ param: lo, off });
   }
-
-  // Interior region boundaries: a centred 45° peel between the two offsets.
-  for (let i = 0; i < subs.length - 1; i++) {
-    const L = subs[i];
-    const R = subs[i + 1];
-    if (Math.abs(L.off - R.off) < EPS) continue;
-    const b = L.e;
-    const delta = Math.abs(R.off - L.off) / spp;
-    const dl = Math.min(delta / 2, (L.e - L.s) / 2);
-    const dr = Math.min(delta / 2, (R.e - R.s) / 2);
-    push({ param: b - dl, off: L.off });
-    push({ param: b + dr, off: R.off });
-  }
-
-  // hi end: notch back to the centerline if it is a station, else end in-lane.
-  const lastOff = subs[subs.length - 1].off;
   if (hiZero) {
-    if (Math.abs(lastOff) > EPS) {
-      const d = Math.min(Math.abs(lastOff) / spp, subs[subs.length - 1].e - subs[subs.length - 1].s);
-      push({ param: hi - d, off: lastOff });
-    }
-    push({ param: hi, off: 0 });
+    cps.push({ param: hi - d, off });
+    cps.push({ param: hi, off: 0 });
   } else {
-    push({ param: hi, off: lastOff });
+    cps.push({ param: hi, off });
   }
 
   let mapped: Point[] = cps.map(cp => {

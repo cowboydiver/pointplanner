@@ -12,7 +12,7 @@ import { bundleFixture } from './bundleFixture';
  */
 export function BundlingProto() {
   const [on, setOn] = useState(true);
-  const [lanePitch, setLanePitch] = useState(20);
+  const [lanePitch, setLanePitch] = useState(16);
   const [radius, setRadius] = useState(CORNER_RADIUS);
 
   const { stations, edges, lines } = bundleFixture;
