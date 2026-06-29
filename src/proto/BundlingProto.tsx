@@ -11,7 +11,7 @@ import { bundleFixture } from './bundleFixture';
  */
 export function BundlingProto() {
   const [on, setOn] = useState(true);
-  const [lanePitch, setLanePitch] = useState(11);
+  const [lanePitch, setLanePitch] = useState(16);
 
   const { stations, edges, lines } = bundleFixture;
 
@@ -59,7 +59,7 @@ export function BundlingProto() {
         </label>
         <label style={{ display: 'flex', gap: 8, alignItems: 'center', opacity: on ? 1 : 0.4 }}>
           lane pitch
-          <input type="range" min={0} max={20} step={1} value={lanePitch} disabled={!on}
+          <input type="range" min={0} max={28} step={1} value={lanePitch} disabled={!on}
             onChange={e => setLanePitch(Number(e.target.value))} />
           <span style={{ width: 26, textAlign: 'right' }}>{lanePitch}px</span>
         </label>
