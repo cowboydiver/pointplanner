@@ -13,10 +13,12 @@ import { dist, type Point } from './routing';
  * *trunk* — the line earliest in the global line order — stays exactly on the
  * original track and never moves. Every other line is pushed into a fixed
  * parallel lane beside it (flanking both sides: +1, −1, +2, −2 … by line order)
- * and connects to the trunk's track with a sharp 45° diagonal at each end of its
- * run. Because each line keeps ONE fixed lane for the whole shared region, a line
- * never changes lane mid-run — the only bends are its own 45° joins, so there are
- * no "recentering" wobbles.
+ * and connects to the trunk's track with a 45° diagonal at each end of its run.
+ * Those joins fillet with the same `CORNER_RADIUS` as every routing bend (in
+ * `pointsToPath`), so they read as ordinary corners — there is no separate sharp
+ * corner. Because each line keeps ONE fixed lane for the whole shared region, a
+ * line never changes lane mid-run — the only bends are its own 45° joins, so there
+ * are no "recentering" wobbles.
  *
  * It is purely geometric and pixel-space (no React, no layout changes). The unit
  * of work is a *leg* — one straight run between consecutive routed waypoints
@@ -38,7 +40,9 @@ const QUANT = 0.5; // px — collapse float noise when grouping collinear legs
 const EPS = 1e-6;
 
 export interface BundleParams {
-  /** Centre-to-centre distance between adjacent lanes, in px (~10–12 looks good). */
+  /** Centre-to-centre distance between adjacent lanes, in px. Shipped value is
+   *  `LANE_PITCH = 16` (routing.ts): large enough that the innermost lane clears a
+   *  passing-station marker (see ADR 0007), so don't tune it below that blindly. */
   lanePitch: number;
 }
 
@@ -217,15 +221,20 @@ interface LegResult {
 /**
  * Rewrite one leg into an offset polyline.
  *
- * A leg carries a *single* lane offset for its whole length — the line slides into
- * its lane and stays there, passing any station it doesn't serve in a straight line.
- * It only returns to the centerline at a real *station* (`startZero`/`endZero`, an
- * edge endpoint), with a 45° notch so it visibly touches its stop. At an end that is
- * an interior bend it stays in its lane (endpoint pixel = lane point; the caller drags
- * the adjacent leg onto it). Crucially it never peels back to the centerline at a bare
- * bundle-region boundary mid-leg — that used to make a continuing line dip to touch a
- * passing station that merely marked where the *other* lines left. Legs too short to
- * fit their notch(es) are left on the centerline.
+ * The line slides into its lane and stays there, passing any station it doesn't
+ * serve in a straight line. It returns to the centerline (offset 0) ONLY at a real
+ * *station* (`startZero`/`endZero`, an edge endpoint), with a 45° notch so it visibly
+ * touches its stop. At an end that is an interior bend it stays in its lane (endpoint
+ * pixel = lane point; the caller drags the adjacent leg onto it).
+ *
+ * A leg can cross more than one bundle region (e.g. several dependencies converging
+ * into a merge corridor), and this line's lane may differ between them. The leg is
+ * therefore split at region boundaries and each span carries its own region lane; a
+ * gap with no region inherits (carries) the nearest region's lane rather than dropping
+ * to the centerline. So the line changes lane mid-leg with a 45° lane-to-lane join but
+ * never peels back to the centerline mid-leg — which both keeps every region's overlap
+ * separated and avoids dipping to touch a passing station that merely marks where the
+ * *other* lines left. Legs too short to fit their station notch(es) stay on the centerline.
  */
 function offsetLeg(
   leg: Leg,
@@ -244,38 +253,87 @@ function offsetLeg(
   const loZero = flip ? endZero : startZero;
   const hiZero = flip ? startZero : endZero;
 
-  // One lane for the whole leg: this line's offset in the region it overlaps most
-  // (a leg spanning two differently-offset regions is vanishingly rare here).
-  let off = 0;
-  let bestOverlap = 0;
+  // Split the leg at region boundaries; each span gets this line's lane in the region
+  // covering it (or NaN where no region covers it — a gap).
+  const cuts = new Set<number>([lo, hi]);
   for (const r of regions) {
-    const s = Math.max(r.lo, lo);
-    const e = Math.min(r.hi, hi);
-    if (e - s <= EPS) continue;
-    const o = r.offsetByLine.get(leg.line);
-    if (o === undefined || Math.abs(o) < EPS) continue;
-    if (e - s > bestOverlap) { bestOverlap = e - s; off = o; }
+    if (r.hi <= lo || r.lo >= hi) continue;
+    cuts.add(Math.max(r.lo, lo));
+    cuts.add(Math.min(r.hi, hi));
   }
-  if (Math.abs(off) < EPS) return { pts: [leg.a, leg.b], changed: false };
+  const xs = [...cuts].filter(x => x >= lo - EPS && x <= hi + EPS).sort((a, b) => a - b);
+  const spans: Array<{ s: number; e: number; off: number }> = [];
+  for (let i = 0; i < xs.length - 1; i++) {
+    const s = xs[i];
+    const e = xs[i + 1];
+    if (e - s < EPS) continue;
+    const mid = (s + e) / 2;
+    let off = NaN; // gap (no region) until proven otherwise
+    for (const r of regions) {
+      if (r.lo - EPS <= mid && mid <= r.hi + EPS && r.offsetByLine.has(leg.line)) {
+        off = r.offsetByLine.get(leg.line)!;
+        break;
+      }
+    }
+    spans.push({ s, e, off });
+  }
+
+  // Carry a region's lane across adjacent gaps so the line holds its lane instead of
+  // returning to the centerline mid-leg (forward fill, then backward for a leading gap).
+  for (let i = 1; i < spans.length; i++) {
+    if (Number.isNaN(spans[i].off)) spans[i].off = spans[i - 1].off;
+  }
+  for (let i = spans.length - 2; i >= 0; i--) {
+    if (Number.isNaN(spans[i].off)) spans[i].off = spans[i + 1].off;
+  }
+  // Collapse adjacent equal-lane spans so we don't emit redundant joins.
+  const merged = spans.filter(s => !Number.isNaN(s.off)).reduce<typeof spans>((acc, s) => {
+    const last = acc[acc.length - 1];
+    if (last && Math.abs(last.off - s.off) < EPS) last.e = s.e;
+    else acc.push({ ...s });
+    return acc;
+  }, []);
+  if (!merged.some(s => Math.abs(s.off) > EPS)) {
+    return { pts: [leg.a, leg.b], changed: false };
+  }
 
   // A station end needs a 45° notch back to the centerline; ensure the leg is long
   // enough to host them, else leave it on the centerline.
-  const d = Math.abs(off) / spp;
-  const needed = (loZero ? d : 0) + (hiZero ? d : 0);
-  if (hi - lo < needed) return { pts: [leg.a, leg.b], changed: false };
+  const dLo = loZero ? Math.abs(merged[0].off) / spp : 0;
+  const dHi = hiZero ? Math.abs(merged[merged.length - 1].off) / spp : 0;
+  if (hi - lo < dLo + dHi) return { pts: [leg.a, leg.b], changed: false };
 
   const cps: ControlPoint[] = [];
+  const push = (cp: ControlPoint) => {
+    const prev = cps[cps.length - 1];
+    if (prev && Math.abs(prev.param - cp.param) < EPS && Math.abs(prev.off - cp.off) < EPS) return;
+    cps.push(cp);
+  };
+
+  // lo end: notch from the centerline if it is a station, else start in-lane.
   if (loZero) {
-    cps.push({ param: lo, off: 0 });
-    cps.push({ param: lo + d, off });
+    push({ param: lo, off: 0 });
+    push({ param: lo + dLo, off: merged[0].off });
   } else {
-    cps.push({ param: lo, off });
+    push({ param: lo, off: merged[0].off });
   }
+  // Interior lane-to-lane joins, centred on each region boundary (never touch 0).
+  for (let i = 0; i < merged.length - 1; i++) {
+    const L = merged[i];
+    const R = merged[i + 1];
+    const b = L.e;
+    const delta = Math.abs(R.off - L.off) / spp;
+    const dl = Math.min(delta / 2, (L.e - L.s) / 2);
+    const dr = Math.min(delta / 2, (R.e - R.s) / 2);
+    push({ param: b - dl, off: L.off });
+    push({ param: b + dr, off: R.off });
+  }
+  // hi end: notch back to the centerline if it is a station, else end in-lane.
   if (hiZero) {
-    cps.push({ param: hi - d, off });
-    cps.push({ param: hi, off: 0 });
+    push({ param: hi - dHi, off: merged[merged.length - 1].off });
+    push({ param: hi, off: 0 });
   } else {
-    cps.push({ param: hi, off });
+    push({ param: hi, off: merged[merged.length - 1].off });
   }
 
   let mapped: Point[] = cps.map(cp => {

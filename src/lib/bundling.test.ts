@@ -173,6 +173,39 @@ describe('offsetCollinearLegs — trunk-fixed lane offsetting', () => {
     expect(samePoint(second[0], [200, 100])).toBe(true);
   });
 
+  it('a leg crossing two regions keeps each region’s lane — no dropped offset', () => {
+    // B's single leg [0,600] crosses two separate bundles with a gap between:
+    //   region 1 [50,150] = {A,B}      → B is rank 1 → +16 (y=116)
+    //   region 2 [400,500] = {P,Q,B}   → B is rank 2 → −16 (y=84)
+    // The most-overlapping-region shortcut would have drawn B at one offset across
+    // both, re-introducing overlap in the other region. Both must be honoured.
+    const routed: Routed[] = [
+      { edge: edge('b0', 'b1', 'B'), points: [[0, 100], [600, 100]] },
+      { edge: edge('a0', 'a1', 'A'), points: [[50, 100], [150, 100]] },
+      { edge: edge('p0', 'p1', 'P'), points: [[400, 100], [500, 100]] },
+      { edge: edge('q0', 'q1', 'Q'), points: [[400, 100], [500, 100]] },
+    ];
+    const b = offsetCollinearLegs(routed, { lanePitch: 16 }, ['P', 'Q', 'A', 'B']).get(0)!;
+    expect(b).toBeDefined();
+
+    const yAt = (x: number) => {
+      for (let i = 0; i < b.length - 1; i++) {
+        const [x0, y0] = b[i];
+        const [x1, y1] = b[i + 1];
+        if (x >= Math.min(x0, x1) - 1e-9 && x <= Math.max(x0, x1) + 1e-9 && Math.abs(x1 - x0) > 1e-9) {
+          return y0 + (y1 - y0) * ((x - x0) / (x1 - x0));
+        }
+      }
+      return NaN;
+    };
+
+    expect(near(yAt(100), 116)).toBe(true); // region 1 lane (+16)
+    expect(near(yAt(450), 84)).toBe(true);  // region 2 lane (−16), NOT +16
+    // returns to the centerline only at its own endpoints
+    expect(near(b[0][1], 100)).toBe(true);
+    expect(near(b[b.length - 1][1], 100)).toBe(true);
+  });
+
   it('returns an empty map when nothing overlaps', () => {
     const routed: Routed[] = [
       { edge: edge('a0', 'a1', 'A'), points: [[0, 100], [300, 100]] },
