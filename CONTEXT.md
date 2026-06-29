@@ -20,6 +20,9 @@ PointPlanner renders a project as a **subway transit map**: tasks are **stations
 | **Grid** | The coordinate system: columns spaced `COL=152px` apart from `PAD_X=96`, rows spaced `ROW=94px` apart from `PAD_Y=92` |
 | **Routing** | The algorithm that converts an (source, target) station pair into a sequence of 45°-only waypoints |
 | **df (diagonal-first)** | Routing flag: when true, the path goes diagonal before going straight; used when source and target are on different rows |
+| **Bundle** | A run where two or more *different* lines lie on the identical grid line and would otherwise draw on top of each other. Disambiguated at render time by nudging them into parallel lanes. See ADR 0007 |
+| **Trunk** | Within a bundle, the line that keeps the original track (offset 0) and never moves — the one earliest in the project's line order. The other lines flank it |
+| **Lane** | The fixed parallel track a non-trunk line occupies through a bundle, offset perpendicular by a multiple of `LANE_PITCH`. A line slides into its lane with a 45° join and only returns to the centerline to touch its own stations |
 | **Auto-arrange** | Re-deriving every station's grid position from the dependency graph, so the map stays uncluttered. Runs automatically when an edit changes the graph or a station's lines, and on demand from the Auto-arrange control. Station positions are never authored by hand, so this is always safe. See ADR 0005 |
 | **Tag** | A short keyword attached to a station, shown in its detail panel. Sourced from a GitHub label or from a leading title prefix shared across stations |
 | **Label angle** | A rotation applied to every station label at once (subway-map style, 0°, 45° or -45°). A per-viewer display preference like the theme — stored per map in `localStorage`, never in the saved map — so it works even on read-only mirrors. See ADR 0003 |

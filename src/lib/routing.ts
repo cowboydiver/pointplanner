@@ -5,6 +5,8 @@ export const COL = 152;
 export const PAD_Y = 92;
 export const ROW = 94;
 export const CORNER_RADIUS = 18;
+/** Centre-to-centre spacing of parallel lanes when collinear lines are bundled. */
+export const LANE_PITCH = 16;
 
 export function px(col: number): number {
   return PAD_X + col * COL;
