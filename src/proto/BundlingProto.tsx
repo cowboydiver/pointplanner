@@ -1,7 +1,8 @@
 import { useMemo, useState } from 'react';
+import type { Point } from '../lib/routing';
 import { resolveRouting, routePoints, pointsToPath, CORNER_RADIUS } from '../lib/routing';
 import { computeBounds } from '../lib/bounds';
-import { offsetCollinearLegs, type OffsetEdge } from '../lib/bundling';
+import { offsetCollinearLegs } from '../lib/bundling';
 import { bundleFixture } from './bundleFixture';
 
 /**
@@ -12,6 +13,7 @@ import { bundleFixture } from './bundleFixture';
 export function BundlingProto() {
   const [on, setOn] = useState(true);
   const [lanePitch, setLanePitch] = useState(16);
+  const [radius, setRadius] = useState(CORNER_RADIUS);
 
   const { stations, edges, lines } = bundleFixture;
 
@@ -31,7 +33,7 @@ export function BundlingProto() {
   }, [edges, stationById]);
 
   const bundled = useMemo(
-    () => (on ? offsetCollinearLegs(routed, { lanePitch }, lineOrder) : new Map<number, OffsetEdge>()),
+    () => (on ? offsetCollinearLegs(routed, { lanePitch }, lineOrder) : new Map<number, Point[]>()),
     [on, routed, lanePitch, lineOrder],
   );
 
@@ -63,6 +65,12 @@ export function BundlingProto() {
             onChange={e => setLanePitch(Number(e.target.value))} />
           <span style={{ width: 26, textAlign: 'right' }}>{lanePitch}px</span>
         </label>
+        <label style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          turn radius
+          <input type="range" min={0} max={40} step={1} value={radius}
+            onChange={e => setRadius(Number(e.target.value))} />
+          <span style={{ width: 26, textAlign: 'right' }}>{radius}px</span>
+        </label>
         <span style={{ marginLeft: 'auto', color: '#5b5f6a' }}>
           {bundled.size} edge{bundled.size === 1 ? '' : 's'} re-routed into lanes
         </span>
@@ -73,8 +81,8 @@ export function BundlingProto() {
           {routed.map(({ edge }, i) => {
             const lineObj = lineById[edge.line];
             if (!lineObj) return null;
-            const b = bundled.get(i);
-            const d = pointsToPath(b?.points ?? routed[i].points, CORNER_RADIUS, b?.sharp);
+            const pts = bundled.get(i) ?? routed[i].points;
+            const d = pointsToPath(pts, radius);
             return (
               <path
                 key={`${edge.from}-${edge.to}-${i}`}

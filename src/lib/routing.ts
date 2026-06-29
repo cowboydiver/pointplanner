@@ -108,13 +108,10 @@ export function dist(a: Point, b: Point): number {
 
 /**
  * Convert an array of waypoints to an SVG path string with rounded corners.
- *
- * `sharp` (optional) holds interior waypoint indices whose corner must stay a
- * mitred (un-rounded) bend — emitted as a plain `L` instead of the fillet. Used
- * by the lane-bundling pass (`bundling.ts`) for the sharp 45° diverge/converge
- * joins, while every normal routing bend keeps its rounded corner.
+ * Every interior waypoint — normal routing bends and lane-bundling joins alike —
+ * is filleted with the same `radius` (clamped to half the shorter adjacent leg).
  */
-export function pointsToPath(pts: Point[], radius: number, sharp?: Set<number>): string {
+export function pointsToPath(pts: Point[], radius: number): string {
   if (pts.length < 3 || !radius) {
     return 'M' + pts.map(p => p[0] + ' ' + p[1]).join(' L ');
   }
@@ -122,12 +119,7 @@ export function pointsToPath(pts: Point[], radius: number, sharp?: Set<number>):
   let d = 'M ' + pts[0][0] + ' ' + pts[0][1];
 
   for (let i = 1; i < pts.length - 1; i++) {
-    const p1 = pts[i];
-    if (sharp?.has(i)) {
-      d += ' L ' + p1[0] + ' ' + p1[1];
-      continue;
-    }
-    const p0 = pts[i - 1], p2 = pts[i + 1];
+    const p0 = pts[i - 1], p1 = pts[i], p2 = pts[i + 1];
     const v1 = norm(p1, p0), v2 = norm(p1, p2);
     const len1 = dist(p0, p1), len2 = dist(p1, p2);
     const r = Math.min(radius, len1 / 2, len2 / 2);

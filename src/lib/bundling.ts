@@ -24,13 +24,13 @@ import { dist, type Point } from './routing';
  * emits). Same-line overlap collapses onto one lane and is left alone.
  *
  * Where a bundled line meets a real *station* (an edge endpoint, always at a grid
- * centre) it returns to offset 0 with a sharp 45° notch — the line visibly touches
- * its stop. Where it meets an interior routing *bend* (the turn where it joins or
- * leaves the corridor) it stays in its lane: the bend is shifted sideways onto the
- * lane and the adjacent non-collinear leg is dragged to that shifted point, so the
- * line slides straight into its lane instead of spiking up to the centerline first.
- * Consecutive legs still meet exactly (shared waypoint), so the rounded-corner logic
- * in `pointsToPath` is untouched; only the 45° notches/peels are reported as *sharp*.
+ * centre) it returns to offset 0 with a 45° notch — the line visibly touches its
+ * stop. Where it meets an interior routing *bend* (the turn where it joins or leaves
+ * the corridor) it stays in its lane: the bend is shifted sideways onto the lane and
+ * the adjacent non-collinear leg is dragged to that shifted point, so the line slides
+ * straight into its lane instead of spiking up to the centerline first. The result is
+ * just a waypoint list per edge; every corner (routing bend and lane join alike) is
+ * filleted with the one shared `CORNER_RADIUS` by `pointsToPath`.
  */
 
 const SQRT1_2 = Math.SQRT1_2; // 1/√2
@@ -42,12 +42,6 @@ export interface BundleParams {
   lanePitch: number;
 }
 
-/** The offset polyline for one edge plus the indices whose corner must stay sharp. */
-export interface OffsetEdge {
-  points: Point[];
-  /** Indices into `points` (the 45° diverge/converge joins) that must not be rounded. */
-  sharp: Set<number>;
-}
 
 /** One straight run between two consecutive routed waypoints, tagged with its source. */
 interface Leg {
@@ -213,12 +207,10 @@ export function bundleRegions(
 interface ControlPoint {
   param: number;
   off: number;
-  sharp: boolean;
 }
 
 interface LegResult {
   pts: Point[];
-  sharp: number[];
   changed: boolean;
 }
 
@@ -237,11 +229,11 @@ function regionOffset(regions: Region[], line: string, param: number): number {
  * Rewrite one leg into an offset polyline.
  *
  * `startZero`/`endZero` say whether the leg's `a`/`b` end is a real station — only
- * there does the line return to the centerline (with a sharp 45° notch). At an end
- * that is an interior bend the line stays in its lane, so the endpoint pixel is the
- * *lane* point; the caller drags the adjacent leg onto it. Inside the leg, a region
- * boundary produces a sharp 45° peel between the centerline and the lane. Any sub-run
- * too short to fit its joins is left on the centerline.
+ * there does the line return to the centerline (with a 45° notch). At an end that is
+ * an interior bend the line stays in its lane, so the endpoint pixel is the *lane*
+ * point; the caller drags the adjacent leg onto it. Inside the leg, a region boundary
+ * produces a 45° peel between the centerline and the lane. Any sub-run too short to
+ * fit its joins is left on the centerline.
  */
 function offsetLeg(
   leg: Leg,
@@ -285,29 +277,26 @@ function offsetLeg(
   }
 
   if (!subs.some(s => Math.abs(s.off) > EPS)) {
-    return { pts: [leg.a, leg.b], sharp: [], changed: false };
+    return { pts: [leg.a, leg.b], changed: false };
   }
 
   const cps: ControlPoint[] = [];
   const push = (cp: ControlPoint) => {
     const prev = cps[cps.length - 1];
-    if (prev && Math.abs(prev.param - cp.param) < EPS && Math.abs(prev.off - cp.off) < EPS) {
-      prev.sharp = prev.sharp || cp.sharp;
-      return;
-    }
+    if (prev && Math.abs(prev.param - cp.param) < EPS && Math.abs(prev.off - cp.off) < EPS) return;
     cps.push(cp);
   };
 
   // lo end: notch from the centerline if it is a station, else start in-lane.
   const firstOff = subs[0].off;
   if (loZero) {
-    push({ param: lo, off: 0, sharp: false });
+    push({ param: lo, off: 0 });
     if (Math.abs(firstOff) > EPS) {
       const d = Math.min(Math.abs(firstOff) / spp, subs[0].e - subs[0].s);
-      push({ param: lo + d, off: firstOff, sharp: true });
+      push({ param: lo + d, off: firstOff });
     }
   } else {
-    push({ param: lo, off: firstOff, sharp: Math.abs(firstOff) > EPS });
+    push({ param: lo, off: firstOff });
   }
 
   // Interior region boundaries: a centred 45° peel between the two offsets.
@@ -319,8 +308,8 @@ function offsetLeg(
     const delta = Math.abs(R.off - L.off) / spp;
     const dl = Math.min(delta / 2, (L.e - L.s) / 2);
     const dr = Math.min(delta / 2, (R.e - R.s) / 2);
-    push({ param: b - dl, off: L.off, sharp: true });
-    push({ param: b + dr, off: R.off, sharp: true });
+    push({ param: b - dl, off: L.off });
+    push({ param: b + dr, off: R.off });
   }
 
   // hi end: notch back to the centerline if it is a station, else end in-lane.
@@ -328,28 +317,25 @@ function offsetLeg(
   if (hiZero) {
     if (Math.abs(lastOff) > EPS) {
       const d = Math.min(Math.abs(lastOff) / spp, subs[subs.length - 1].e - subs[subs.length - 1].s);
-      push({ param: hi - d, off: lastOff, sharp: true });
+      push({ param: hi - d, off: lastOff });
     }
-    push({ param: hi, off: 0, sharp: false });
+    push({ param: hi, off: 0 });
   } else {
-    push({ param: hi, off: lastOff, sharp: Math.abs(lastOff) > EPS });
+    push({ param: hi, off: lastOff });
   }
 
-  let mapped = cps.map(cp => {
+  let mapped: Point[] = cps.map(cp => {
     const base = pointAt(ll, cp.param);
-    const pt: Point = [base[0] + ll.normal[0] * cp.off, base[1] + ll.normal[1] * cp.off];
-    return { pt, sharp: cp.sharp };
+    return [base[0] + ll.normal[0] * cp.off, base[1] + ll.normal[1] * cp.off];
   });
   if (flip) mapped = mapped.reverse();
 
   // Snap a centerline endpoint to the exact original (float cleanup); a lane
   // endpoint is left as computed for the caller to reconcile.
-  if (startZero) mapped[0].pt = leg.a;
-  if (endZero) mapped[mapped.length - 1].pt = leg.b;
+  if (startZero) mapped[0] = leg.a;
+  if (endZero) mapped[mapped.length - 1] = leg.b;
 
-  const sharp: number[] = [];
-  mapped.forEach((m, i) => { if (m.sharp) sharp.push(i); });
-  return { pts: mapped.map(m => m.pt), sharp, changed: true };
+  return { pts: mapped, changed: true };
 }
 
 /**
@@ -358,7 +344,7 @@ function offsetLeg(
  * point (the line slides into its lane without spiking to the centerline first).
  * Returns null if nothing changed.
  */
-function offsetEdge(points: Point[], line: string, regionsByKey: Map<string, Region[]>): OffsetEdge | null {
+function offsetEdge(points: Point[], line: string, regionsByKey: Map<string, Region[]>): Point[] | null {
   const n = points.length - 1;
   if (n < 1) return null;
 
@@ -369,7 +355,7 @@ function offsetEdge(points: Point[], line: string, regionsByKey: Map<string, Reg
     const ll = legLine(a, b);
     const regions = ll && regionsByKey.get(ll.key);
     if (!ll || !regions) {
-      legs.push({ pts: [a, b], sharp: [], changed: false });
+      legs.push({ pts: [a, b], changed: false });
       continue;
     }
     legs.push(offsetLeg({ a, b, line }, ll, regions, i === 0, i === n - 1));
@@ -396,18 +382,10 @@ function offsetEdge(points: Point[], line: string, regionsByKey: Map<string, Reg
   }
 
   const merged: Point[] = [];
-  const sharp = new Set<number>();
   legs.forEach((leg, i) => {
-    const start = merged.length;
-    if (i === 0) {
-      merged.push(...leg.pts);
-      leg.sharp.forEach(si => sharp.add(start + si));
-    } else {
-      merged.push(...leg.pts.slice(1));
-      leg.sharp.forEach(si => { if (si >= 1) sharp.add(start + si - 1); });
-    }
+    merged.push(...(i === 0 ? leg.pts : leg.pts.slice(1)));
   });
-  return { points: merged, sharp };
+  return merged;
 }
 
 /**
@@ -417,15 +395,15 @@ function offsetEdge(points: Point[], line: string, regionsByKey: Map<string, Reg
  * @param params  lane pitch (45° join length is derived from it)
  * @param lineOrder global line-declaration order — the stable lane key; the first
  *                  line present on a run is the trunk and stays put
- * @returns map of edgeIndex → { points, sharp }. Only edges whose geometry
- *          actually changed are included; callers fall back to the original
- *          points (and no sharp corners) for the rest.
+ * @returns map of edgeIndex → rewritten waypoint list. Only edges whose geometry
+ *          actually changed are included; callers fall back to the original points
+ *          for the rest. Feed the result to `pointsToPath` with the shared radius.
  */
 export function offsetCollinearLegs(
   routed: { edge: Edge; points: Point[] }[],
   params: BundleParams,
   lineOrder: string[],
-): Map<number, OffsetEdge> {
+): Map<number, Point[]> {
   const rankOf = new Map(lineOrder.map((id, i) => [id, i]));
   const laneRank = (line: string) => (rankOf.has(line) ? rankOf.get(line)! : lineOrder.length);
 
@@ -456,7 +434,7 @@ export function offsetCollinearLegs(
   if (regionsByKey.size === 0) return new Map();
 
   // 3. Rewrite each edge whose legs touch a bundle region.
-  const result = new Map<number, OffsetEdge>();
+  const result = new Map<number, Point[]>();
   routed.forEach(({ edge, points }, ei) => {
     const offset = offsetEdge(points, edge.line, regionsByKey);
     if (offset) result.set(ei, offset);
