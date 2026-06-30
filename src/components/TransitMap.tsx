@@ -1,7 +1,8 @@
 import { useMemo, useCallback, useRef } from 'react';
 import { useStore } from '../store/projectStore';
 import { computeBounds } from '../lib/bounds';
-import { resolveRouting } from '../lib/routing';
+import { resolveRouting, routePoints, LANE_PITCH } from '../lib/routing';
+import { offsetCollinearLegs } from '../lib/bundling';
 import { toTransform } from '../lib/panzoom';
 import { usePanZoom } from './usePanZoom';
 import { Segment } from './Segment';
@@ -21,6 +22,14 @@ export function TransitMap() {
   // clean after re-placement or dependency changes, rather than trusting the
   // creation-time flag stored on each edge.
   const routedEdges = useMemo(() => resolveRouting(edges, stationById), [edges, stationById]);
+
+  // Disambiguate the few residual runs where different lines share an identical
+  // grid run by nudging them into parallel lanes (trunk-fixed; see bundling.ts).
+  // Keyed by the same index used to render each Segment below.
+  const bundledPoints = useMemo(() => {
+    const routed = routedEdges.map(edge => ({ edge, points: routePoints(edge, stationById) }));
+    return offsetCollinearLegs(routed, { lanePitch: LANE_PITCH }, state.lines.map(l => l.id));
+  }, [routedEdges, stationById, state.lines]);
 
   const handleSelect = useCallback((id: string) => {
     dispatch({ type: 'OPEN_DETAIL', id });
@@ -53,6 +62,7 @@ export function TransitMap() {
                 key={`${edge.from}-${edge.to}-${i}`}
                 edge={edge}
                 stationById={stationById}
+                points={bundledPoints.get(i)}
                 lineColor={lineObj.color}
                 isUpcoming={isUpcoming}
                 isDim={isDim}

@@ -5,6 +5,14 @@ export const COL = 152;
 export const PAD_Y = 92;
 export const ROW = 94;
 export const CORNER_RADIUS = 18;
+/**
+ * Centre-to-centre spacing of parallel lanes when collinear lines are bundled
+ * (ADR 0007). Coupled to station-marker clearance: a non-trunk lane sits this far
+ * from the centre markers it passes, so the value trades lane tightness against
+ * how close a lane runs to a passing marker. Pinned by a test like the other grid
+ * constants — don't retune it without updating `routing.test.ts`.
+ */
+export const LANE_PITCH = 16;
 
 export function px(col: number): number {
   return PAD_X + col * COL;
@@ -108,6 +116,8 @@ export function dist(a: Point, b: Point): number {
 
 /**
  * Convert an array of waypoints to an SVG path string with rounded corners.
+ * Every interior waypoint — normal routing bends and lane-bundling joins alike —
+ * is filleted with the same `radius` (clamped to half the shorter adjacent leg).
  */
 export function pointsToPath(pts: Point[], radius: number): string {
   if (pts.length < 3 || !radius) {

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { routePoints, pointsToPath, resolveRouting, resolveDf, px, py, PAD_X, PAD_Y, COL, ROW } from './routing';
+import { routePoints, pointsToPath, resolveRouting, resolveDf, px, py, PAD_X, PAD_Y, COL, ROW, LANE_PITCH } from './routing';
 import type { Station, Edge } from '../types';
 
 function makeStation(id: string, col: number, row: number): Station {
@@ -27,6 +27,23 @@ describe('px / py helpers', () => {
   });
   it('row 2 = PAD_Y + 2*ROW', () => {
     expect(py(2)).toBe(PAD_Y + 2 * ROW);
+  });
+});
+
+describe('LANE_PITCH — bundled-lane spacing constant', () => {
+  // Pinned like the other grid constants (CLAUDE.md): a change here is a deliberate
+  // visual decision, so it should break a test rather than silently regress lanes.
+  it('is the documented 16px', () => {
+    expect(LANE_PITCH).toBe(16);
+  });
+
+  it('clears a passing station marker yet stays well inside a row', () => {
+    // A non-trunk lane sits LANE_PITCH from the centre markers it passes. It must be
+    // wide enough to read as separate from a passing marker (~11px radius) and narrow
+    // enough that even the ±LANE_PITCH lanes of a 2-line bundle never reach the
+    // adjacent grid row (ROW away). Both bounds couple the value to the grid.
+    expect(LANE_PITCH).toBeGreaterThanOrEqual(11);
+    expect(LANE_PITCH).toBeLessThan(ROW / 2);
   });
 });
 
