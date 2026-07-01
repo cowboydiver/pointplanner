@@ -182,9 +182,12 @@ body[data-theme="dark"] .map-ctrl { background: #1b1e25; border-color: var(--hai
 body[data-theme="dark"] .map-ctrl:hover { background: #232732; }
 
 /* segments */
-.seg { stroke-width: var(--line-w); stroke-linecap: round; stroke-linejoin: round; transition: opacity .3s, stroke-width .2s; }
-.seg.upcoming { opacity: .28; }
-.seg.dim { opacity: .07 !important; }
+.seg { stroke-width: var(--line-w); stroke-linecap: round; stroke-linejoin: round; transition: stroke-width .2s; }
+/* Opacity lives on the tier groups, not the paths: SVG group opacity composites
+   each tier into one layer before fading it, so overlapping faded lines keep the
+   tier's opacity instead of stacking darker. */
+.lines-upcoming { opacity: .28; }
+.lines-dim { opacity: .07; }
 
 /* stations */
 .station { cursor: pointer; --c: #888; transition: opacity .25s; }

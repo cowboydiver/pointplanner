@@ -8,6 +8,14 @@ import { usePanZoom } from './usePanZoom';
 import { Segment } from './Segment';
 import { StationNode } from './StationNode';
 
+// Render order is back-to-front: dimmed and faded lines sit behind fully-lit
+// ones, so cross-tier overlaps resolve by coverage instead of stacking alpha.
+const LINE_TIERS = [
+  { tier: 'dim', className: 'lines-dim' },
+  { tier: 'upcoming', className: 'lines-upcoming' },
+  { tier: 'normal', className: 'lines-normal' },
+] as const;
+
 export function TransitMap() {
   const { state, indexes, dispatch } = useStore();
   const { stations, edges, selectedId, highlightLine } = state;
@@ -25,11 +33,32 @@ export function TransitMap() {
 
   // Disambiguate the few residual runs where different lines share an identical
   // grid run by nudging them into parallel lanes (trunk-fixed; see bundling.ts).
-  // Keyed by the same index used to render each Segment below.
+  // Keyed by the same routedEdges index used as `index` on each tiered edge below.
   const bundledPoints = useMemo(() => {
     const routed = routedEdges.map(edge => ({ edge, points: routePoints(edge, stationById) }));
     return offsetCollinearLegs(routed, { lanePitch: LANE_PITCH }, state.lines.map(l => l.id));
   }, [routedEdges, stationById, state.lines]);
+
+  // Bucket each edge into an opacity tier. Opacity is applied once per tier on
+  // the wrapping <g> (see LINE_TIERS / global.css) rather than per path, so
+  // faded lines that overlap don't stack alpha and read darker — this covers the
+  // same-line collinear legs that bundling leaves coincident. `dim` wins over
+  // `upcoming`, matching the old `.seg.dim` !important. The original routedEdges
+  // index is preserved as `index` to keep React keys unique across buckets and to
+  // look up each edge's bundled (lane-offset) waypoints.
+  const tieredEdges = useMemo(() => {
+    return routedEdges.flatMap((edge, i) => {
+      const toStation = stationById[edge.to];
+      const lineObj = lineById[edge.line];
+      if (!toStation || !lineObj) return [];
+
+      const isDim = highlightLine !== null && edge.line !== highlightLine;
+      const isUpcoming = toStation.status === 'locked';
+      const tier = isDim ? 'dim' : isUpcoming ? 'upcoming' : 'normal';
+
+      return [{ edge, color: lineObj.color, tier, index: i, key: `${edge.from}-${edge.to}-${i}` }];
+    });
+  }, [routedEdges, stationById, lineById, highlightLine]);
 
   const handleSelect = useCallback((id: string) => {
     dispatch({ type: 'OPEN_DETAIL', id });
@@ -49,26 +78,21 @@ export function TransitMap() {
       >
         <g className="g-viewport" transform={toTransform(transform)}>
         <g className="g-lines">
-          {routedEdges.map((edge, i) => {
-            const toStation = stationById[edge.to];
-            const lineObj = lineById[edge.line];
-            if (!toStation || !lineObj) return null;
-
-            const isUpcoming = toStation.status === 'locked';
-            const isDim = highlightLine !== null && edge.line !== highlightLine;
-
-            return (
-              <Segment
-                key={`${edge.from}-${edge.to}-${i}`}
-                edge={edge}
-                stationById={stationById}
-                points={bundledPoints.get(i)}
-                lineColor={lineObj.color}
-                isUpcoming={isUpcoming}
-                isDim={isDim}
-              />
-            );
-          })}
+          {LINE_TIERS.map(({ tier, className }) => (
+            <g key={tier} className={className}>
+              {tieredEdges
+                .filter(t => t.tier === tier)
+                .map(t => (
+                  <Segment
+                    key={t.key}
+                    edge={t.edge}
+                    stationById={stationById}
+                    points={bundledPoints.get(t.index)}
+                    lineColor={t.color}
+                  />
+                ))}
+            </g>
+          ))}
         </g>
         <g className="g-stations">
           {stations.map(station => {
