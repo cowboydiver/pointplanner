@@ -109,7 +109,6 @@ export function TransitMap() {
                 isSelected={selectedId === station.id}
                 isDim={isDim}
                 labelAngle={state.labelAngle}
-                labelPivot={state.labelPivot}
                 onSelect={handleSelect}
               />
             );
