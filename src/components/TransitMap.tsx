@@ -10,9 +10,11 @@ import { StationNode } from './StationNode';
 
 // Render order is back-to-front: dimmed and faded lines sit behind fully-lit
 // ones, so cross-tier overlaps resolve by coverage instead of stacking alpha.
+// `done` = already-completed edges (recede into history); the active frontier and
+// everything onwards from it stays at full `normal` opacity so the path forward pops.
 const LINE_TIERS = [
   { tier: 'dim', className: 'lines-dim' },
-  { tier: 'upcoming', className: 'lines-upcoming' },
+  { tier: 'done', className: 'lines-done' },
   { tier: 'normal', className: 'lines-normal' },
 ] as const;
 
@@ -43,9 +45,11 @@ export function TransitMap() {
   // the wrapping <g> (see LINE_TIERS / global.css) rather than per path, so
   // faded lines that overlap don't stack alpha and read darker — this covers the
   // same-line collinear legs that bundling leaves coincident. `dim` wins over
-  // `upcoming`, matching the old `.seg.dim` !important. The original routedEdges
-  // index is preserved as `index` to keep React keys unique across buckets and to
-  // look up each edge's bundled (lane-offset) waypoints.
+  // `done`, matching the old `.seg.dim` !important. An edge counts as `done` only
+  // once its target station is done, so the completed history recedes while the
+  // available frontier and every upcoming leg beyond it stay fully lit. The original
+  // routedEdges index is preserved as `index` to keep React keys unique across
+  // buckets and to look up each edge's bundled (lane-offset) waypoints.
   const tieredEdges = useMemo(() => {
     return routedEdges.flatMap((edge, i) => {
       const toStation = stationById[edge.to];
@@ -53,8 +57,8 @@ export function TransitMap() {
       if (!toStation || !lineObj) return [];
 
       const isDim = highlightLine !== null && edge.line !== highlightLine;
-      const isUpcoming = toStation.status === 'locked';
-      const tier = isDim ? 'dim' : isUpcoming ? 'upcoming' : 'normal';
+      const isDone = toStation.status === 'done';
+      const tier = isDim ? 'dim' : isDone ? 'done' : 'normal';
 
       return [{ edge, color: lineObj.color, tier, index: i, key: `${edge.from}-${edge.to}-${i}` }];
     });

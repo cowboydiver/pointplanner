@@ -21,7 +21,7 @@ export function Segment({ edge, stationById, points, lineColor }: SegmentProps) 
   // nudged into parallel lanes at render time (see bundling.ts); the rest of the
   // separation is handled at layout time (see layoutStations).
   //
-  // Opacity for the faded `upcoming`/`dim` states lives on the wrapping tier
+  // Opacity for the faded `done`/`dim` states lives on the wrapping tier
   // groups in TransitMap, not on this path — group opacity composites overlaps
   // once so stacked faded lines (e.g. same-line legs bundling leaves coincident)
   // don't darken where they run together.
