@@ -26,7 +26,6 @@ PointPlanner renders a project as a **subway transit map**: tasks are **stations
 | **Auto-arrange** | Re-deriving every station's grid position from the dependency graph, so the map stays uncluttered. Runs automatically when an edit changes the graph or a station's lines, and on demand from the Auto-arrange control. Station positions are never authored by hand, so this is always safe. See ADR 0005 |
 | **Tag** | A short keyword attached to a station, shown in its detail panel. Sourced from a GitHub label or from a leading title prefix shared across stations |
 | **Label angle** | A rotation applied to every station label at once (subway-map style, 0°, 45° or -45°). A per-viewer display preference like the theme — stored per map in `localStorage`, never in the saved map — so it works even on read-only mirrors. See ADR 0003 |
-| **Label pivot** | The point a rotated label turns about: `center` (the station marker) or an edge of the label's own text box (`left`/`top`/`bottom`/`right`). A per-viewer preference paired with the label angle. See ADR 0003 |
 
 ## Accounts & sharing
 

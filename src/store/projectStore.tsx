@@ -5,7 +5,7 @@ import { loadMap, saveMap, getMapSource, type MapRole, type MapSource } from '..
 import { supabase } from '../data/supabase';
 import { useMapRegistry } from './mapRegistry';
 import { reducer, resolveReadOnly, type StoreState, type PersistedState, type Action } from './reducer';
-import { loadLabelAngle, saveLabelAngle, loadLabelPivot, saveLabelPivot } from '../lib/labelAnglePref';
+import { loadLabelAngle, saveLabelAngle } from '../lib/labelAnglePref';
 import { MirrorBanner } from '../components/MirrorBanner';
 
 // Re-export the store's public types so existing imports from this module keep working.
@@ -108,10 +108,9 @@ function LoadedStore({
     selectedId: null,
     highlightLine: null,
     theme: 'light',
-    // Per-viewer rotation + pivot, restored from localStorage so they survive
-    // reloads and work on read-only mirrors (never touch the saved map). ADR 0003.
+    // Per-viewer rotation, restored from localStorage so it survives reloads and
+    // works on read-only mirrors (never touches the saved map). ADR 0003.
     labelAngle: loadLabelAngle(localStorage, mapId),
-    labelPivot: loadLabelPivot(localStorage, mapId),
     modalOpen: false,
     modalOpenCount: 0,
     modalMode: 'create',
@@ -243,9 +242,6 @@ function LoadedStore({
   useEffect(() => {
     saveLabelAngle(localStorage, mapId, state.labelAngle);
   }, [mapId, state.labelAngle]);
-  useEffect(() => {
-    saveLabelPivot(localStorage, mapId, state.labelPivot);
-  }, [mapId, state.labelPivot]);
 
   return (
     <StoreContext.Provider value={{ state, indexes, dispatch, readOnly, isMirror }}>
