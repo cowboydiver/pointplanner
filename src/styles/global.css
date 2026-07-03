@@ -214,7 +214,7 @@ body[data-theme="dark"] .map-ctrl:hover { background: #232732; }
 .station.interchange.st-locked .marker { stroke: #c3c0b6; }
 
 .station.st-available .marker { stroke-width: 4px; }
-.station.st-available .halo { opacity: .14; animation: breathe 2.8s ease-in-out infinite; }
+.station.st-available .halo { opacity: .34; animation: pulse-ready 2.4s ease-out infinite; }
 
 .station.st-active .marker { fill: #fff; }
 .station.st-active .active-dot { opacity: 1; }
@@ -233,7 +233,7 @@ body[data-theme="dark"] .map-ctrl:hover { background: #232732; }
 
 .station.just-changed .marker { animation: pop .4s cubic-bezier(.2,1.4,.4,1); }
 
-@keyframes breathe { 0%,100% { transform: scale(1); opacity:.12; } 50% { transform: scale(1.5); opacity:.05; } }
+@keyframes pulse-ready { 0% { transform: scale(.7); opacity:.34; } 70%,100% { transform: scale(2.3); opacity:0; } }
 @keyframes ping { 0% { transform: scale(.8); opacity:.32; } 70%,100% { transform: scale(2.1); opacity:0; } }
 @keyframes pop { 0% { transform: scale(1.4); } 100% { transform: scale(1); } }
 body.hide-labels .label { display: none; }
