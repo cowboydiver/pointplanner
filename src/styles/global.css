@@ -186,7 +186,7 @@ body[data-theme="dark"] .map-ctrl:hover { background: #232732; }
 /* Opacity lives on the tier groups, not the paths: SVG group opacity composites
    each tier into one layer before fading it, so overlapping faded lines keep the
    tier's opacity instead of stacking darker. */
-.lines-done { opacity: .28; }
+.lines-muted { opacity: .28; }
 .lines-dim { opacity: .07; }
 
 /* stations */

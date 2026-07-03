@@ -8,13 +8,14 @@ import { usePanZoom } from './usePanZoom';
 import { Segment } from './Segment';
 import { StationNode } from './StationNode';
 
-// Render order is back-to-front: dimmed and faded lines sit behind fully-lit
-// ones, so cross-tier overlaps resolve by coverage instead of stacking alpha.
-// `done` = already-completed edges (recede into history); the active frontier and
-// everything onwards from it stays at full `normal` opacity so the path forward pops.
+// Render order is back-to-front: dimmed and muted lines sit behind fully-lit ones,
+// so cross-tier overlaps resolve by coverage instead of stacking alpha. `normal`
+// (full opacity) is the spotlight — the link between a current station and the
+// completed prerequisite that unblocked it (or, in line-highlight mode, the whole
+// highlighted line). Every other edge is `muted`.
 const LINE_TIERS = [
   { tier: 'dim', className: 'lines-dim' },
-  { tier: 'done', className: 'lines-done' },
+  { tier: 'muted', className: 'lines-muted' },
   { tier: 'normal', className: 'lines-normal' },
 ] as const;
 
@@ -44,21 +45,28 @@ export function TransitMap() {
   // Bucket each edge into an opacity tier. Opacity is applied once per tier on
   // the wrapping <g> (see LINE_TIERS / global.css) rather than per path, so
   // faded lines that overlap don't stack alpha and read darker — this covers the
-  // same-line collinear legs that bundling leaves coincident. `dim` wins over
-  // `done`, matching the old `.seg.dim` !important. An edge counts as `done` only
-  // once its target station is done, so the completed history recedes while the
-  // available frontier and every upcoming leg beyond it stay fully lit. The original
+  // same-line collinear legs that bundling leaves coincident. The original
   // routedEdges index is preserved as `index` to keep React keys unique across
   // buckets and to look up each edge's bundled (lane-offset) waypoints.
+  //
+  // The line-highlight filter (legend chip) takes priority: off-line edges go
+  // `dim`, the highlighted line stays fully lit. With no line highlighted we
+  // spotlight only the link from a current station (available/active) back to the
+  // completed prerequisite that unblocked it; every other edge is `muted`.
   const tieredEdges = useMemo(() => {
     return routedEdges.flatMap((edge, i) => {
+      const fromStation = stationById[edge.from];
       const toStation = stationById[edge.to];
       const lineObj = lineById[edge.line];
       if (!toStation || !lineObj) return [];
 
       const isDim = highlightLine !== null && edge.line !== highlightLine;
-      const isDone = toStation.status === 'done';
-      const tier = isDim ? 'dim' : isDone ? 'done' : 'normal';
+      const isOnHighlightedLine = highlightLine !== null && edge.line === highlightLine;
+      const isCurrentLink =
+        highlightLine === null &&
+        fromStation?.status === 'done' &&
+        (toStation.status === 'available' || toStation.status === 'active');
+      const tier = isDim ? 'dim' : isOnHighlightedLine || isCurrentLink ? 'normal' : 'muted';
 
       return [{ edge, color: lineObj.color, tier, index: i, key: `${edge.from}-${edge.to}-${i}` }];
     });
