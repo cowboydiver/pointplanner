@@ -11,7 +11,7 @@ interface StationNodeProps {
   isSelected: boolean;
   isDim: boolean;
   /** True while this station's row is hovered in the detail panel's dependency
-   *  lists — pops the marker on the map so the listed task is easy to locate. */
+   *  lists — pops the marker on the map so the listed station is easy to locate. */
   isHovered?: boolean;
   /** Per-viewer label rotation in degrees (subway style); 0 = horizontal. */
   labelAngle?: number;

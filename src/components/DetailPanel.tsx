@@ -35,7 +35,7 @@ export function DetailPanel() {
   }
 
   // Highlight the matching station on the map while the pointer rests on one of
-  // its dependency rows, so the listed task is easy to locate.
+  // its dependency rows, so the listed station is easy to locate.
   function hoverStation(id: string | null) {
     dispatch({ type: 'SET_HOVERED_STATION', id });
   }
