@@ -45,9 +45,10 @@ Key properties:
   never disturbed.
 - **Runs after bundling.** A bundled non-trunk lane already sits `LANE_PITCH` off
   the centre (a marker's width), so only trunk / un-bundled legs that still run
-  through a marker are rewritten. The crossing threshold (`markerRadius = 13`, the
-  interchange marker) is below `LANE_PITCH = 16`, so a bundled lane is never
-  mistaken for a crossing.
+  through a marker are rewritten. The crossing threshold is
+  `INTERCHANGE_MARKER_RADIUS` (13) — the larger marker, a single exported constant
+  shared with `StationNode` — which is below `LANE_PITCH` (16), so a bundled lane is
+  never mistaken for a crossing.
 - **One shared corner radius.** Plateau joins fillet with the same `CORNER_RADIUS`
   as every routing bend (`pointsToPath`), so the step reads as ordinary corners —
   identical to a bundling lane join.

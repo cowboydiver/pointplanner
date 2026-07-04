@@ -1,7 +1,7 @@
 import { useMemo, useCallback, useRef } from 'react';
 import { useStore } from '../store/projectStore';
 import { computeBounds } from '../lib/bounds';
-import { resolveRouting, routePoints, LANE_PITCH } from '../lib/routing';
+import { resolveRouting, routePoints, LANE_PITCH, INTERCHANGE_MARKER_RADIUS } from '../lib/routing';
 import { offsetCollinearLegs } from '../lib/bundling';
 import { clearPassedStations } from '../lib/clearance';
 import { toTransform } from '../lib/panzoom';
@@ -45,8 +45,8 @@ export function TransitMap() {
     const bundled = offsetCollinearLegs(routed, { lanePitch: LANE_PITCH }, state.lines.map(l => l.id));
 
     const effective = routed.map(({ edge }, i) => ({ edge, points: bundled.get(i) ?? routed[i].points }));
-    // markerRadius is the larger (interchange) marker's radius from StationNode.
-    const cleared = clearPassedStations(effective, stations, { clearance: LANE_PITCH, markerRadius: 13 });
+    // Clear against the larger (interchange) marker, so no marker reads as a false stop.
+    const cleared = clearPassedStations(effective, stations, { clearance: LANE_PITCH, markerRadius: INTERCHANGE_MARKER_RADIUS });
 
     const merged = new Map(bundled);
     cleared.forEach((pts, i) => merged.set(i, pts));

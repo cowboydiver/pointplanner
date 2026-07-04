@@ -1,5 +1,13 @@
 import type { Edge, Station } from '../types';
-import { legLine, paramOf, pointAt, type LegLine } from './bundling';
+import {
+  legLine,
+  paramOf,
+  pointAt,
+  screenPerParam,
+  pushControlPoint,
+  type LegLine,
+  type ControlPoint,
+} from './bundling';
 import { px, py, dist, type Point } from './routing';
 
 /**
@@ -39,24 +47,10 @@ export interface ClearanceParams {
    *  marker-clearing distance a bundled lane uses (ADR 0007). */
   clearance: number;
   /** A station whose centre is within this many px of a leg (perpendicular) counts
-   *  as crossed. Set to the largest marker radius (the interchange marker, 13) so a
-   *  bundled lane sitting `clearance` (16) away is never mistaken for a crossing. */
+   *  as crossed. Set to the largest marker radius (`INTERCHANGE_MARKER_RADIUS`) so a
+   *  bundled lane sitting `clearance` (`LANE_PITCH`) away — necessarily larger — is
+   *  never mistaken for a crossing. */
   markerRadius: number;
-}
-
-/**
- * Screen distance covered per unit of param along the host line — 1 axis-aligned,
- * √2 for the diagonals (their param is (x±y)/2). Sizing the ramp and plateau in
- * param by `offset / spp` keeps their *screen* length equal to the offset, so a
- * ramp is an exact 45° and reads as one shared corner (mirrors `bundling.ts`).
- */
-function screenPerParam(family: LegLine['family']): number {
-  return family === 'h' || family === 'v' ? 1 : Math.SQRT2;
-}
-
-interface ControlPoint {
-  param: number;
-  off: number;
 }
 
 /**
@@ -65,9 +59,15 @@ interface ControlPoint {
  * routing bends / real stops and must not move — so each leg is independent and
  * the caller can splice the results with no boundary reconciliation.
  *
- * Returns null if the leg is unchanged (no reachable crossings).
+ * `screenPerParam` sizes the ramp and plateau in param by `clearance / spp` so
+ * their *screen* length equals the offset — an exact 45° that reads as one shared
+ * corner, the same way `bundling.ts` builds its lane joins.
+ *
+ * Returns null if the leg is unchanged (no reachable crossings). Exported for the
+ * unit tests, which exercise the merge and diagonal-host paths directly (they can't
+ * arise from the current grid, where crossings are ≥94px apart on axis-aligned runs).
  */
-function clearLeg(
+export function clearLeg(
   a: Point,
   b: Point,
   ll: LegLine,
@@ -104,14 +104,13 @@ function clearLeg(
   }
 
   const cps: ControlPoint[] = [];
-  const push = (cp: ControlPoint) => {
-    const prev = cps[cps.length - 1];
-    if (prev && Math.abs(prev.param - cp.param) < EPS && Math.abs(prev.off - cp.off) < EPS) return;
-    cps.push(cp);
-  };
-  // Plateaus flank the centreline on one fixed side (negative normal) — the
-  // side never matters for marker clearance (no grid station sits `clearance`
-  // off a row/column), so a single deterministic choice keeps it simple.
+  const push = (cp: ControlPoint) => pushControlPoint(cps, cp);
+  // Plateaus flank the centreline on one fixed side (negative normal). The
+  // marker being cleared sits `clearance` away *perpendicular* to the leg — the
+  // plateau's own direction — for every family, so the crossed marker is cleared
+  // regardless of side. And on any family the nearest *other* grid marker is a
+  // full row/column (≥94px) away, so a `clearance`-sized (16px) step can never
+  // reach it. The side is therefore a free, deterministic choice.
   const D = -clearance;
   push({ param: lo, off: 0 });
   for (const span of spans) {

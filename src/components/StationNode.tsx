@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { Station, Line, LabelPlacement } from '../types';
-import { px, py } from '../lib/routing';
+import { px, py, MARKER_RADIUS, INTERCHANGE_MARKER_RADIUS } from '../lib/routing';
 import { wrapLabel } from '../lib/labelWrap';
 
 const LINE_HEIGHT = 15; // px between wrapped label lines (font-size 13)
@@ -95,7 +95,7 @@ export function StationNode({ station, primaryLine, isSelected, isDim, labelAngl
     >
       <circle className="hit" r={26} cx={0} cy={0} fill="transparent" />
       <circle className="halo" r={16} cx={0} cy={0} />
-      <circle className="marker" r={isInterchange ? 13 : 11} cx={0} cy={0} />
+      <circle className="marker" r={isInterchange ? INTERCHANGE_MARKER_RADIUS : MARKER_RADIUS} cx={0} cy={0} />
       <path className="check" d="M -4.2 0.4 L -1.2 3.4 L 4.6 -3.2" />
       <circle className="active-dot" r={4.4} cx={0} cy={0} />
       <g transform={labelTransform}>

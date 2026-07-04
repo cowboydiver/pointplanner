@@ -14,6 +14,16 @@ export const CORNER_RADIUS = 18;
  */
 export const LANE_PITCH = 16;
 
+/**
+ * Station marker radii (px) — the single source of truth for the circles
+ * `StationNode` draws. The interchange (multi-line) marker is the larger of the
+ * two; the render-time clearance pass uses it as the crossing threshold, and
+ * `LANE_PITCH` is deliberately kept above it so a bundled lane clears a passing
+ * marker (ADR 0007) — the same coupling the clearance step relies on (ADR 0008).
+ */
+export const MARKER_RADIUS = 11;
+export const INTERCHANGE_MARKER_RADIUS = 13;
+
 export function px(col: number): number {
   return PAD_X + col * COL;
 }
