@@ -32,6 +32,7 @@ function makeState(): StoreState {
     edges,
     selectedId: 'c',
     highlightLine: null,
+    hoveredStationId: null,
     theme: 'light',
     labelAngle: 0,
     modalOpen: true,
@@ -309,6 +310,51 @@ describe('SET_LABEL_ANGLE', () => {
   it('supports the negative preset', () => {
     const next = reducer(makeState(), { type: 'SET_LABEL_ANGLE', angle: -45 });
     expect(next.labelAngle).toBe(-45);
+  });
+});
+
+describe('SET_HOVERED_STATION', () => {
+  it('records the hovered station as view-only state, not in the saved project', () => {
+    const next = reducer(makeState(), { type: 'SET_HOVERED_STATION', id: 'a' });
+    expect(next.hoveredStationId).toBe('a');
+    // It must not leak into the persisted map content.
+    expect(next.project).not.toHaveProperty('hoveredStationId');
+    expect(next.stations).toEqual(makeState().stations);
+    expect(next.edges).toEqual(makeState().edges);
+  });
+
+  it('clears the hover when passed null', () => {
+    const hovered = reducer(makeState(), { type: 'SET_HOVERED_STATION', id: 'a' });
+    const cleared = reducer(hovered, { type: 'SET_HOVERED_STATION', id: null });
+    expect(cleared.hoveredStationId).toBeNull();
+  });
+
+  it('is cleared when navigating to another station (OPEN_DETAIL)', () => {
+    const hovered = reducer(makeState(), { type: 'SET_HOVERED_STATION', id: 'a' });
+    const next = reducer(hovered, { type: 'OPEN_DETAIL', id: 'a' });
+    expect(next.selectedId).toBe('a');
+    expect(next.hoveredStationId).toBeNull();
+  });
+
+  it('is cleared when closing the detail panel (CLOSE_DETAIL)', () => {
+    const hovered = reducer(makeState(), { type: 'SET_HOVERED_STATION', id: 'a' });
+    const next = reducer(hovered, { type: 'CLOSE_DETAIL' });
+    expect(next.hoveredStationId).toBeNull();
+  });
+
+  it('SET_DATA keeps the hover when it still resolves, clears it otherwise', () => {
+    const base = reducer(makeState(), { type: 'SET_HOVERED_STATION', id: 'a' });
+    const keep = reducer(base, {
+      type: 'SET_DATA',
+      data: { project: base.project, lines: base.lines, stations: base.stations, edges: base.edges },
+    });
+    expect(keep.hoveredStationId).toBe('a');
+
+    const drop = reducer(base, {
+      type: 'SET_DATA',
+      data: { project: base.project, lines: base.lines, stations: [station('z', 0, 0, 'available')], edges: [] },
+    });
+    expect(drop.hoveredStationId).toBeNull();
   });
 });
 
