@@ -34,6 +34,12 @@ export function DetailPanel() {
     dispatch({ type: 'OPEN_DETAIL', id });
   }
 
+  // Highlight the matching station on the map while the pointer rests on one of
+  // its dependency rows, so the listed station is easy to locate.
+  function hoverStation(id: string | null) {
+    dispatch({ type: 'SET_HOVERED_STATION', id });
+  }
+
   return (
     <aside className={`detail${isOpen ? ' open' : ''}`}>
       <div className="p-inner">
@@ -125,6 +131,8 @@ export function DetailPanel() {
                     key={pid}
                     className={`pre st-${ps.status}`}
                     onClick={() => gotoStation(pid)}
+                    onMouseEnter={() => hoverStation(pid)}
+                    onMouseLeave={() => hoverStation(null)}
                   >
                     <span className="pre-dot" />
                     <span className="pre-name">{ps.name}</span>
@@ -148,6 +156,8 @@ export function DetailPanel() {
                     key={did}
                     className={`pre st-${ds.status}`}
                     onClick={() => gotoStation(did)}
+                    onMouseEnter={() => hoverStation(did)}
+                    onMouseLeave={() => hoverStation(null)}
                   >
                     <span className="pre-dot" />
                     <span className="pre-name">{ds.name}</span>

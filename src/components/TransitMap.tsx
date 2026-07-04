@@ -19,7 +19,7 @@ const LINE_TIERS = [
 
 export function TransitMap() {
   const { state, indexes, dispatch } = useStore();
-  const { stations, edges, selectedId, highlightLine } = state;
+  const { stations, edges, selectedId, highlightLine, hoveredStationId } = state;
   const { stationById, lineById } = indexes;
 
   const bounds = useMemo(() => computeBounds(stations), [stations]);
@@ -122,6 +122,7 @@ export function TransitMap() {
                 primaryLine={primaryLine}
                 isSelected={selectedId === station.id}
                 isDim={isDim}
+                isHovered={hoveredStationId === station.id}
                 labelAngle={state.labelAngle}
                 onSelect={handleSelect}
               />

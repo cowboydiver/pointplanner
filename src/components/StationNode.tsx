@@ -10,6 +10,9 @@ interface StationNodeProps {
   primaryLine: Line;
   isSelected: boolean;
   isDim: boolean;
+  /** True while this station's row is hovered in the detail panel's dependency
+   *  lists — pops the marker on the map so the listed station is easy to locate. */
+  isHovered?: boolean;
   /** Per-viewer label rotation in degrees (subway style); 0 = horizontal. */
   labelAngle?: number;
   onSelect: (id: string) => void;
@@ -29,7 +32,7 @@ function getLabelProps(lp: LabelPlacement) {
   }
 }
 
-export function StationNode({ station, primaryLine, isSelected, isDim, labelAngle = 0, onSelect }: StationNodeProps) {
+export function StationNode({ station, primaryLine, isSelected, isDim, isHovered = false, labelAngle = 0, onSelect }: StationNodeProps) {
   const isInterchange = station.lines.length > 1;
   const cx = px(station.col);
   const cy = py(station.row);
@@ -79,6 +82,7 @@ export function StationNode({ station, primaryLine, isSelected, isDim, labelAngl
     lineClasses,
     isSelected ? 'selected' : '',
     isDim ? 'dim' : '',
+    isHovered ? 'hover-highlight' : '',
     justChanged ? 'just-changed' : '',
   ].filter(Boolean).join(' ');
 

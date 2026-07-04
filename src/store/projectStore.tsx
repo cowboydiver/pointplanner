@@ -107,6 +107,7 @@ function LoadedStore({
     ...initialData,
     selectedId: null,
     highlightLine: null,
+    hoveredStationId: null,
     theme: 'light',
     // Per-viewer rotation, restored from localStorage so it survives reloads and
     // works on read-only mirrors (never touches the saved map). ADR 0003.

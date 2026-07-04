@@ -27,6 +27,10 @@ export function resolveReadOnly(role: MapRole, isMirror: boolean): boolean {
 export interface StoreState extends PersistedState {
   selectedId: string | null;
   highlightLine: string | null;
+  // Transient map focus: the station the pointer is hovering in the detail
+  // panel's "Depends on" / "Unblocks next" lists, highlighted on the map so the
+  // dependency is easy to locate. View-only (never persisted), like highlightLine.
+  hoveredStationId: string | null;
   theme: 'light' | 'dark';
   // Per-viewer label rotation in degrees (0 = horizontal, ±45 = subway-style).
   // A private display preference like `theme`, not saved map content — persisted
@@ -45,6 +49,7 @@ export type Action =
   | { type: 'DO_ACTION'; id: string; act: 'start' | 'done' | 'reopen' }
   | { type: 'SET_DATA'; data: PersistedState }
   | { type: 'SET_HIGHLIGHT_LINE'; lineId: string | null }
+  | { type: 'SET_HOVERED_STATION'; id: string | null }
   | { type: 'CREATE_TASK'; data: CreateTaskData }
   | { type: 'UPDATE_TASK'; id: string; data: EditTaskData }
   | { type: 'DELETE_TASK'; id: string }
@@ -128,10 +133,13 @@ function sameSet(a: string[], b: string[]): boolean {
 export function reducer(state: StoreState, action: Action): StoreState {
   switch (action.type) {
     case 'OPEN_DETAIL':
-      return { ...state, selectedId: action.id };
+      // Navigating clears any lingering hover highlight — the list re-renders with
+      // the new station's dependencies, so a leftover hovered id no longer matches
+      // what the pointer is over.
+      return { ...state, selectedId: action.id, hoveredStationId: null };
 
     case 'CLOSE_DETAIL':
-      return { ...state, selectedId: null };
+      return { ...state, selectedId: null, hoveredStationId: null };
 
     case 'DO_ACTION': {
       const updated = state.stations.map(s => {
@@ -160,6 +168,10 @@ export function reducer(state: StoreState, action: Action): StoreState {
         state.highlightLine && data.lines.some(l => l.id === state.highlightLine)
           ? state.highlightLine
           : null;
+      const hoveredStationId =
+        state.hoveredStationId && data.stations.some(s => s.id === state.hoveredStationId)
+          ? state.hoveredStationId
+          : null;
       return {
         ...state,
         project: data.project,
@@ -168,11 +180,15 @@ export function reducer(state: StoreState, action: Action): StoreState {
         edges: data.edges,
         selectedId,
         highlightLine,
+        hoveredStationId,
       };
     }
 
     case 'SET_HIGHLIGHT_LINE':
       return { ...state, highlightLine: action.lineId };
+
+    case 'SET_HOVERED_STATION':
+      return { ...state, hoveredStationId: action.id };
 
     case 'CREATE_TASK': {
       const { data } = action;
