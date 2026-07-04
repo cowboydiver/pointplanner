@@ -54,7 +54,7 @@ interface Leg {
   line: string;
 }
 
-type Family = 'h' | 'v' | 'd+' | 'd-';
+export type Family = 'h' | 'v' | 'd+' | 'd-';
 
 /** Canonical identity of the infinite line a leg lies on, plus its 1-D param frame. */
 export interface LegLine {
@@ -122,7 +122,7 @@ export function pointAt(ll: LegLine, param: number): Point {
  * axis-aligned families, √2 for the diagonals (param there is (x±y)/2). Used to
  * size a 45° join so its *screen* along-length matches the perpendicular offset.
  */
-function screenPerParam(family: Family): number {
+export function screenPerParam(family: Family): number {
   return family === 'h' || family === 'v' ? 1 : Math.SQRT2;
 }
 
@@ -208,9 +208,20 @@ export function bundleRegions(
   return regions;
 }
 
-interface ControlPoint {
+export interface ControlPoint {
   param: number;
   off: number;
+}
+
+/**
+ * Append a control point, collapsing a duplicate of the previous one (same param
+ * and offset within float noise). Shared with the clearance pass so the two
+ * render-time offsetters build their polylines the same way.
+ */
+export function pushControlPoint(cps: ControlPoint[], cp: ControlPoint): void {
+  const prev = cps[cps.length - 1];
+  if (prev && Math.abs(prev.param - cp.param) < EPS && Math.abs(prev.off - cp.off) < EPS) return;
+  cps.push(cp);
 }
 
 interface LegResult {
@@ -304,11 +315,7 @@ function offsetLeg(
   if (hi - lo < dLo + dHi) return { pts: [leg.a, leg.b], changed: false };
 
   const cps: ControlPoint[] = [];
-  const push = (cp: ControlPoint) => {
-    const prev = cps[cps.length - 1];
-    if (prev && Math.abs(prev.param - cp.param) < EPS && Math.abs(prev.off - cp.off) < EPS) return;
-    cps.push(cp);
-  };
+  const push = (cp: ControlPoint) => pushControlPoint(cps, cp);
 
   // lo end: notch from the centerline if it is a station, else start in-lane.
   if (loZero) {

@@ -1,8 +1,9 @@
 import { useMemo, useCallback, useRef } from 'react';
 import { useStore } from '../store/projectStore';
 import { computeBounds } from '../lib/bounds';
-import { resolveRouting, routePoints, LANE_PITCH } from '../lib/routing';
+import { resolveRouting, routePoints, LANE_PITCH, INTERCHANGE_MARKER_RADIUS } from '../lib/routing';
 import { offsetCollinearLegs } from '../lib/bundling';
+import { clearPassedStations } from '../lib/clearance';
 import { toTransform } from '../lib/panzoom';
 import { usePanZoom } from './usePanZoom';
 import { Segment } from './Segment';
@@ -31,13 +32,26 @@ export function TransitMap() {
   // creation-time flag stored on each edge.
   const routedEdges = useMemo(() => resolveRouting(edges, stationById), [edges, stationById]);
 
-  // Disambiguate the few residual runs where different lines share an identical
-  // grid run by nudging them into parallel lanes (trunk-fixed; see bundling.ts).
-  // Keyed by the same routedEdges index used as `index` on each tiered edge below.
-  const bundledPoints = useMemo(() => {
+  // Two pure pixel-space passes over the routed waypoints, keyed by the same
+  // routedEdges index used as `index` on each tiered edge below:
+  //  1. Bundling — nudge the few residual runs where different lines share an
+  //     identical grid run into parallel lanes (trunk-fixed; see bundling.ts).
+  //  2. Clearance — step an edge around any station marker its own line does not
+  //     serve, so a line never reads as stopping where it doesn't (see clearance.ts).
+  //     Runs on the post-bundling points, so a bundled lane (already a marker's
+  //     width off-centre) is left alone and only straight/trunk legs are rewritten.
+  const overridePoints = useMemo(() => {
     const routed = routedEdges.map(edge => ({ edge, points: routePoints(edge, stationById) }));
-    return offsetCollinearLegs(routed, { lanePitch: LANE_PITCH }, state.lines.map(l => l.id));
-  }, [routedEdges, stationById, state.lines]);
+    const bundled = offsetCollinearLegs(routed, { lanePitch: LANE_PITCH }, state.lines.map(l => l.id));
+
+    const effective = routed.map(({ edge }, i) => ({ edge, points: bundled.get(i) ?? routed[i].points }));
+    // Clear against the larger (interchange) marker, so no marker reads as a false stop.
+    const cleared = clearPassedStations(effective, stations, { clearance: LANE_PITCH, markerRadius: INTERCHANGE_MARKER_RADIUS });
+
+    const merged = new Map(bundled);
+    cleared.forEach((pts, i) => merged.set(i, pts));
+    return merged;
+  }, [routedEdges, stationById, stations, state.lines]);
 
   // Bucket each edge into an opacity tier. Opacity is applied once per tier on
   // the wrapping <g> (see LINE_TIERS / global.css) rather than per path, so
@@ -87,7 +101,7 @@ export function TransitMap() {
                     key={t.key}
                     edge={t.edge}
                     stationById={stationById}
-                    points={bundledPoints.get(t.index)}
+                    points={overridePoints.get(t.index)}
                     lineColor={t.color}
                   />
                 ))}

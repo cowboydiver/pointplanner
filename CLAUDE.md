@@ -35,6 +35,8 @@ seed data (src/data/seed.ts)
 | `indexes.ts` | `buildIndexes` → lookup maps + prereqs/dependents graphs |
 | `dependencies.ts` | `recompute` — cascades `locked`↔`available` based on which prereqs are `done` |
 | `routing.ts` | `routePoints` (45° waypoints, `df` flag = diagonal-first), `pointsToPath` (rounded-corner SVG path), grid helpers `px`/`py` |
+| `bundling.ts` | `offsetCollinearLegs` — render-time nudging of residual collinear cross-line runs into parallel lanes (trunk-fixed — ADR 0007) |
+| `clearance.ts` | `clearPassedStations` — render-time stepping of an edge around any marker its line does not serve, so a line never reads as a false stop (ADR 0008). Runs after bundling |
 | `bounds.ts` | `computeBounds` → SVG viewBox accounting for label padding |
 | `layout.ts` | `layoutStations` (deterministic topological columns + root-column pull + iterated barycentre crossing-reduction + strand packing + compaction — ADR 0006) and `relayoutStations` — re-derives every station's position from the graph. Used by generated maps and by every interactive structural edit / Auto-arrange (ADR 0005) |
 | `placement.ts` | `slugify` — generates a unique station id from a task name |
