@@ -10,9 +10,14 @@ import { EmptyState } from './EmptyState';
 import { AuthProvider, useAuth } from '../store/auth';
 import { SignIn } from './SignIn';
 import { ImportPrompt } from './ImportPrompt';
+// PROTOTYPE (Board View) — delete this import, the provider wrapper and the
+// boardOpen branch below to remove. See src/components/prototype/NOTES.md.
+import { BoardViewProvider, useBoardView } from './prototype/boardView';
+import { BoardPrototype } from './prototype/BoardPrototype';
 
 function AppInner() {
   const { state, dispatch } = useStore();
+  const { boardOpen } = useBoardView();
 
   // Global Escape handler
   useEffect(() => {
@@ -35,7 +40,7 @@ function AppInner() {
       <div className="body">
         <Legend />
         <main className="map-wrap">
-          <TransitMap />
+          {boardOpen ? <BoardPrototype /> : <TransitMap />}
         </main>
         <DetailPanel />
       </div>
@@ -57,7 +62,9 @@ function AppRoot() {
 
   return (
     <ProjectStoreProvider key={`${index.activeMapId}:${reloadNonce}`} mapId={index.activeMapId}>
-      <AppInner />
+      <BoardViewProvider>
+        <AppInner />
+      </BoardViewProvider>
     </ProjectStoreProvider>
   );
 }
