@@ -17,6 +17,8 @@ npx vitest --reporter=verbose            # verbose test output
 
 **PointPlanner** renders a project as a subway transit map: tasks are *stations* on a column/row grid; dependencies are colored *lines* drawn with 45° routing and rounded corners.
 
+The same graph can be read four ways, chosen by `state.view` and the topbar's `ViewSwitcher` — `map` (the transit map) plus three boards in `src/components/board/`: **Queue** (ranked list), **Board** (weighted status columns) and **Departures** (departure rail over line swimlanes). The boards render only; every fact they show comes from `src/lib/board.ts` and every mutation goes through the existing `OPEN_DETAIL` / `DO_ACTION`. See ADR 0009.
+
 ### Data flow
 
 ```
@@ -38,6 +40,7 @@ seed data (src/data/seed.ts)
 | `bundling.ts` | `offsetCollinearLegs` — render-time nudging of residual collinear cross-line runs into parallel lanes (trunk-fixed — ADR 0007) |
 | `clearance.ts` | `clearPassedStations` — render-time stepping of an edge around any marker its line does not serve, so a line never reads as a false stop (ADR 0008). Runs after bundling |
 | `bounds.ts` | `computeBounds` → SVG viewBox accounting for label padding |
+| `board.ts` | `buildBoardModel` — groups stations by status and annotates each with `dependents` / `downstream` / `waitingOn`; ranks `available` work by downstream depth. Backs all three board views (ADR 0009) |
 | `layout.ts` | `layoutStations` (deterministic topological columns + root-column pull + iterated barycentre crossing-reduction + strand packing + compaction — ADR 0006) and `relayoutStations` — re-derives every station's position from the graph. Used by generated maps and by every interactive structural edit / Auto-arrange (ADR 0005) |
 | `placement.ts` | `slugify` — generates a unique station id from a task name |
 
@@ -65,11 +68,11 @@ The sync backend is **Deno Edge Functions** (excluded from `tsc`/ESLint; the pur
 
 ### Store actions
 
-`DO_ACTION(id, 'start'|'done'|'reopen')` mutates a single station's status then runs `recompute` over the whole graph. Structural edits (`CREATE_TASK`, `DELETE_TASK`, and `UPDATE_TASK` when prereqs or lines change) build the new edge set, re-derive every position with `relayoutStations`, then recompute; routing `df` is derived at render time. `AUTO_ARRANGE` re-derives positions on demand (ADR 0005).
+`DO_ACTION(id, 'start'|'done'|'reopen')` mutates a single station's status then runs `recompute` over the whole graph. `SET_VIEW` switches between the map and the three boards; like `SET_THEME` it is view-only, so it is not a `MUTATING_ACTION` and works on read-only mirrors. Structural edits (`CREATE_TASK`, `DELETE_TASK`, and `UPDATE_TASK` when prereqs or lines change) build the new edge set, re-derive every position with `relayoutStations`, then recompute; routing `df` is derived at render time. `AUTO_ARRANGE` re-derives positions on demand (ADR 0005).
 
 ### Styling
 
-`src/styles/global.css` is a verbatim port of the prototype stylesheet — **do not convert to CSS Modules**. The design relies on cascading CSS custom properties (`--c`, `--lc`, `--pc`) set inline on SVG elements and class-based state (`st-done`, `st-active`, `on-<lineId>`, `interchange`, `dim`). Dark mode is driven entirely by `data-theme="dark"` on `<body>`.
+`src/styles/global.css` is a verbatim port of the prototype stylesheet, plus the view-switcher and board sections appended at the end — **do not convert to CSS Modules**. The design relies on cascading CSS custom properties (`--c`, `--lc`, `--pc`) set inline on SVG elements and class-based state (`st-done`, `st-active`, `on-<lineId>`, `interchange`, `dim`). Dark mode is driven entirely by `data-theme="dark"` on `<body>`.
 
 ### Design reference
 

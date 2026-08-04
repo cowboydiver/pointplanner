@@ -26,6 +26,9 @@ PointPlanner renders a project as a **subway transit map**: tasks are **stations
 | **False stop** | A station a line only passes over (its marker sits on the line's run) but does not actually serve — with no white casing it wrongly reads as a stop. Cleared at render time by stepping the edge around the marker. See ADR 0008 |
 | **Auto-arrange** | Re-deriving every station's grid position from the dependency graph, so the map stays uncluttered. Runs automatically when an edit changes the graph or a station's lines, and on demand from the Auto-arrange control. Station positions are never authored by hand, so this is always safe. See ADR 0005 |
 | **Tag** | A short keyword attached to a station, shown in its detail panel. Sourced from a GitHub label or from a leading title prefix shared across stations |
+| **View** | Which rendering of a map is on screen: the **map** itself, or one of three **boards** — Queue, Board, Departures. All four read the same stations and edges; none of them is saved with the map. See ADR 0009 |
+| **Downstream** | Every station transitively behind a given one. The count is what ranks `available` work: the station with the deepest downstream frees the most when it is done |
+| **Terminus** | A station with no dependents — the end of its route. How a board labels a station that nothing is waiting on |
 | **Label angle** | A rotation applied to every station label at once (subway-map style, 0°, 45° or -45°). A per-viewer display preference like the theme — stored per map in `localStorage`, never in the saved map — so it works even on read-only mirrors. See ADR 0003 |
 
 ## Accounts & sharing
@@ -63,3 +66,4 @@ locked → available → active → done
 - Don't say "group" or "category" for a **line** (line is the transit metaphor)
 - Don't say "blocked" for a station — say **locked**
 - Don't say "unlocked" — say **available**
+- Don't say "column" for a board's status group when you mean the map's grid **column** — the boards group by **status**

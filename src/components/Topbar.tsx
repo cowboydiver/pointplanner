@@ -5,7 +5,7 @@ import { useMapRegistry } from '../store/mapRegistry';
 import { LABEL_ANGLES } from '../lib/labelAnglePref';
 import { MapSwitcher } from './MapSwitcher';
 import { ShareModal } from './ShareModal';
-import { useBoardView } from './prototype/boardView';
+import { ViewSwitcher } from './ViewSwitcher';
 
 // Cycle helper for the label-rotation control (angle 0 → 45 → -45 → 0).
 function nextInCycle<T>(values: readonly T[], current: T): T {
@@ -17,7 +17,6 @@ export function Topbar() {
   const { state, dispatch, readOnly, isMirror } = useStore();
   const { signOut } = useAuth();
   const { activeMeta } = useMapRegistry();
-  const { boardOpen, toggleBoard } = useBoardView();
   const [shareOpen, setShareOpen] = useState(false);
 
   const isOwner = activeMeta?.role === 'owner';
@@ -33,16 +32,7 @@ export function Topbar() {
         <span className="pill">{isMirror ? 'Repo mirror (read-only)' : 'Viewer (read-only)'}</span>
       )}
       <div className="spacer" />
-      {/* PROTOTYPE (Board View) — the stub button now toggles the throwaway board
-          prototype. See src/components/prototype/NOTES.md. */}
-      <button
-        className={`tb-btn${boardOpen ? ' primary' : ''}`}
-        type="button"
-        aria-pressed={boardOpen}
-        onClick={toggleBoard}
-      >
-        {boardOpen ? '⬒ Map view' : '▤ Board view'}
-      </button>
+      <ViewSwitcher />
       <button
         className="tb-btn"
         type="button"

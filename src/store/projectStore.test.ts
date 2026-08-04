@@ -30,6 +30,7 @@ function makeState(): StoreState {
     lines: LINES,
     stations,
     edges,
+    view: 'map',
     selectedId: 'c',
     highlightLine: null,
     hoveredStationId: null,

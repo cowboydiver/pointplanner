@@ -24,7 +24,16 @@ export function resolveReadOnly(role: MapRole, isMirror: boolean): boolean {
   return role === 'viewer' || isMirror;
 }
 
+/**
+ * Which rendering of the map is on screen. `map` is the transit map; the other
+ * three are board readings of the same graph, each answering a different
+ * question — see ADR 0009.
+ */
+export type ViewMode = 'map' | 'queue' | 'board' | 'departures';
+
 export interface StoreState extends PersistedState {
+  // View-only, like `theme`: the same map read a different way, never persisted.
+  view: ViewMode;
   selectedId: string | null;
   highlightLine: string | null;
   // Transient map focus: the station the pointer is hovering in the detail
@@ -56,6 +65,7 @@ export type Action =
   | { type: 'CREATE_LINE'; data: LineData }
   | { type: 'UPDATE_LINE'; id: string; data: LineData }
   | { type: 'DELETE_LINE'; id: string }
+  | { type: 'SET_VIEW'; view: ViewMode }
   | { type: 'SET_THEME'; theme: 'light' | 'dark' }
   | { type: 'SET_LABEL_ANGLE'; angle: number }
   | { type: 'OPEN_MODAL'; preset?: { line?: string; prereqs?: string[] } }
@@ -385,6 +395,11 @@ export function reducer(state: StoreState, action: Action): StoreState {
         highlightLine: state.highlightLine === action.id ? null : state.highlightLine,
       };
     }
+
+    case 'SET_VIEW':
+      // View-only (like SET_THEME): switching between the map and the boards
+      // changes nothing in the saved map, so it works on read-only mirrors.
+      return { ...state, view: action.view };
 
     case 'SET_THEME':
       return { ...state, theme: action.theme };

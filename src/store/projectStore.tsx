@@ -105,6 +105,7 @@ function LoadedStore({
   const readOnly = resolveReadOnly(role, isMirror);
   const initialState: StoreState = {
     ...initialData,
+    view: 'map',
     selectedId: null,
     highlightLine: null,
     hoveredStationId: null,
