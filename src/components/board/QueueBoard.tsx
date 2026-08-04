@@ -32,7 +32,9 @@ export function QueueBoard() {
 
       {model.available.length === 0 && (
         <p className="board-empty">
-          Nothing is available right now — finish something in progress to open the next stop.
+          {/* Neutral on purpose: a Viewer or mirror reader cannot act on advice
+              to go and finish something. */}
+          Nothing is available right now — the next stops open as work in progress completes.
         </p>
       )}
 

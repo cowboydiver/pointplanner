@@ -375,3 +375,35 @@ describe('resolveReadOnly', () => {
     expect(resolveReadOnly('editor', false)).toBe(false);
   });
 });
+
+describe('SET_VIEW', () => {
+  it('switches the view without touching the map', () => {
+    const before = makeState();
+    const after = reducer(before, { type: 'SET_VIEW', view: 'departures' });
+
+    expect(after.view).toBe('departures');
+    expect(after.stations).toBe(before.stations);
+    expect(after.edges).toBe(before.edges);
+    expect(after.lines).toBe(before.lines);
+    expect(after.project).toBe(before.project);
+  });
+
+  it('keeps the current view when a live server update lands', () => {
+    // A read-only mirror applies pushed updates via SET_DATA. Losing `view`
+    // there would bounce a viewer off the board they are reading every time
+    // the upstream repo changes.
+    const onBoard = reducer(makeState(), { type: 'SET_VIEW', view: 'queue' });
+    const pushed = reducer(onBoard, {
+      type: 'SET_DATA',
+      data: {
+        project: onBoard.project,
+        lines: onBoard.lines,
+        stations: onBoard.stations.map(s => (s.id === 'b' ? { ...s, status: 'active' as const } : s)),
+        edges: onBoard.edges,
+      },
+    });
+
+    expect(pushed.view).toBe('queue');
+    expect(pushed.stations.find(s => s.id === 'b')?.status).toBe('active');
+  });
+});
