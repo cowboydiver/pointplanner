@@ -5,7 +5,7 @@ import { ConfirmDialog } from './ConfirmDialog';
 import { LineEditor } from './LineEditor';
 
 export function Legend() {
-  const { state, dispatch } = useStore();
+  const { state, dispatch, readOnly } = useStore();
   const { activeMeta } = useMapRegistry();
   const { stations, lines, project, highlightLine } = state;
   // Use registry name as the canonical display name; fall back to store name if missing
@@ -54,19 +54,21 @@ export function Legend() {
               show all
             </button>
           )}
-          <button
-            className="add-line"
-            type="button"
-            onClick={() => { setCreatingLine(true); setEditingLine(null); }}
-          >
-            + Add line
-          </button>
+          {!readOnly && (
+            <button
+              className="add-line"
+              type="button"
+              onClick={() => { setCreatingLine(true); setEditingLine(null); }}
+            >
+              + Add line
+            </button>
+          )}
         </span>
       </div>
 
       <div className="lines-list">
         {lines.map(l => {
-          if (editingLine === l.id) {
+          if (!readOnly && editingLine === l.id) {
             return (
               <LineEditor
                 key={l.id}
@@ -103,27 +105,31 @@ export function Legend() {
                   <span className="line-prog-fill" style={{ width: `${linePct}%` }} />
                 </span>
               </button>
-              <button
-                className="line-edit"
-                type="button"
-                aria-label={`Edit ${l.name}`}
-                onClick={() => { setEditingLine(l.id); setCreatingLine(false); }}
-              >
-                ✎
-              </button>
-              <button
-                className="line-delete"
-                type="button"
-                aria-label={`Delete ${l.name}`}
-                onClick={() => setPendingDeleteLine(l.id)}
-              >
-                ✕
-              </button>
+              {!readOnly && (
+                <>
+                  <button
+                    className="line-edit"
+                    type="button"
+                    aria-label={`Edit ${l.name}`}
+                    onClick={() => { setEditingLine(l.id); setCreatingLine(false); }}
+                  >
+                    ✎
+                  </button>
+                  <button
+                    className="line-delete"
+                    type="button"
+                    aria-label={`Delete ${l.name}`}
+                    onClick={() => setPendingDeleteLine(l.id)}
+                  >
+                    ✕
+                  </button>
+                </>
+              )}
             </div>
           );
         })}
 
-        {creatingLine && (
+        {!readOnly && creatingLine && (
           <LineEditor
             submitLabel="Add line"
             onSave={data => { dispatch({ type: 'CREATE_LINE', data }); setCreatingLine(false); }}
@@ -132,7 +138,7 @@ export function Legend() {
         )}
       </div>
 
-      {pendingDeleteLine && (() => {
+      {!readOnly && pendingDeleteLine && (() => {
         const dl = lines.find(l => l.id === pendingDeleteLine);
         const exclusiveCount = stations.filter(s => s.lines.length === 1 && s.lines[0] === pendingDeleteLine).length;
         const edgeCount = state.edges.filter(e => e.line === pendingDeleteLine).length;

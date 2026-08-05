@@ -10,6 +10,7 @@ import { EmptyState } from './EmptyState';
 import { AuthProvider, useAuth } from '../store/auth';
 import { SignIn } from './SignIn';
 import { ImportPrompt } from './ImportPrompt';
+import { BoardView } from './board/BoardView';
 
 function AppInner() {
   const { state, dispatch } = useStore();
@@ -35,7 +36,7 @@ function AppInner() {
       <div className="body">
         <Legend />
         <main className="map-wrap">
-          <TransitMap />
+          {state.view === 'map' ? <TransitMap /> : <BoardView />}
         </main>
         <DetailPanel />
       </div>

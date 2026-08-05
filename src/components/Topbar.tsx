@@ -5,6 +5,7 @@ import { useMapRegistry } from '../store/mapRegistry';
 import { LABEL_ANGLES } from '../lib/labelAnglePref';
 import { MapSwitcher } from './MapSwitcher';
 import { ShareModal } from './ShareModal';
+import { ViewSwitcher } from './ViewSwitcher';
 
 // Cycle helper for the label-rotation control (angle 0 → 45 → -45 → 0).
 function nextInCycle<T>(values: readonly T[], current: T): T {
@@ -31,9 +32,7 @@ export function Topbar() {
         <span className="pill">{isMirror ? 'Repo mirror (read-only)' : 'Viewer (read-only)'}</span>
       )}
       <div className="spacer" />
-      <button className="tb-btn" type="button">
-        Board view
-      </button>
+      <ViewSwitcher />
       <button
         className="tb-btn"
         type="button"
