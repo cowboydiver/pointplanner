@@ -23,7 +23,7 @@ export function ColumnBoard() {
           {model.locked.map(entry => (
             <li
               key={entry.station.id}
-              className="col-pill"
+              className={`col-pill${entry.dim ? ' dim' : ''}`}
               title={`Waiting on ${entry.waitingOn.map(s => s.name).join(', ')}`}
               onClick={() => select(entry.station.id)}
             >
@@ -62,7 +62,7 @@ export function ColumnBoard() {
           {model.active.map(entry => (
             <li
               key={entry.station.id}
-              className="col-card"
+              className={`col-card${entry.dim ? ' dim' : ''}`}
               style={{ '--lc': entry.line?.color ?? 'var(--locked)' } as CSSProperties}
               onClick={() => select(entry.station.id)}
             >
@@ -93,7 +93,7 @@ export function ColumnBoard() {
           {model.done.map(entry => (
             <li
               key={entry.station.id}
-              className="col-pill col-pill-done"
+              className={`col-pill col-pill-done${entry.dim ? ' dim' : ''}`}
               onClick={() => select(entry.station.id)}
             >
               <span className="col-check">✓</span>
@@ -128,7 +128,11 @@ function ReadyTile({
 }) {
   const color = entry.line?.color ?? 'var(--locked)';
   return (
-    <li className="col-tile" style={{ '--lc': color } as CSSProperties} onClick={onSelect}>
+    <li
+      className={`col-tile${entry.dim ? ' dim' : ''}`}
+      style={{ '--lc': color } as CSSProperties}
+      onClick={onSelect}
+    >
       <div className="col-tile-top">
         <StatusDot status="available" color={color} size={17} />
         <LineBadge line={entry.line} />

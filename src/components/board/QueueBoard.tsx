@@ -58,7 +58,7 @@ export function QueueBoard() {
             {model.active.map(entry => (
               <li
                 key={entry.station.id}
-                className="q-card q-card-active"
+                className={`q-card q-card-active${entry.dim ? ' dim' : ''}`}
                 style={{ '--lc': entry.line?.color ?? 'var(--locked)' } as CSSProperties}
                 onClick={() => select(entry.station.id)}
               >
@@ -88,7 +88,11 @@ export function QueueBoard() {
         <h2 className="sec-h">Locked · {model.locked.length}</h2>
         <ul className="q-rows">
           {model.locked.map(entry => (
-            <li key={entry.station.id} className="q-row" onClick={() => select(entry.station.id)}>
+            <li
+              key={entry.station.id}
+              className={`q-row${entry.dim ? ' dim' : ''}`}
+              onClick={() => select(entry.station.id)}
+            >
               <LineBadge line={entry.line} />
               <span className="q-row-name">{entry.station.name}</span>
               <span className="q-row-wait">
@@ -113,7 +117,7 @@ export function QueueBoard() {
             {model.done.map(entry => (
               <li
                 key={entry.station.id}
-                className="q-row q-row-done"
+                className={`q-row q-row-done${entry.dim ? ' dim' : ''}`}
                 onClick={() => select(entry.station.id)}
               >
                 <LineBadge line={entry.line} />
@@ -144,7 +148,7 @@ function ReadyCard({
   const color = entry.line?.color ?? 'var(--locked)';
   return (
     <li
-      className="q-card q-card-ready"
+      className={`q-card q-card-ready${entry.dim ? ' dim' : ''}`}
       style={{ '--lc': color } as CSSProperties}
       onClick={onSelect}
     >

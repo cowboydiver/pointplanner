@@ -33,6 +33,7 @@ function makeState(): StoreState {
     view: 'map',
     selectedId: 'c',
     highlightLine: null,
+    boardLineFilter: 'fade',
     hoveredStationId: null,
     theme: 'light',
     labelAngle: 0,

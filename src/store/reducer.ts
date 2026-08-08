@@ -6,6 +6,7 @@ import { relayoutStations } from '../lib/layout';
 import { lineIdFromName, normalizeShort } from '../lib/lines';
 import { PLACEHOLDER_DESC, PLACEHOLDER_OWNER, PLACEHOLDER_DASH } from '../lib/placeholders';
 import type { MapRole } from '../data/mapsRepo';
+import type { LineFilterMode } from '../lib/board';
 
 export interface PersistedState {
   project: Project;
@@ -36,6 +37,10 @@ export interface StoreState extends PersistedState {
   view: ViewMode;
   selectedId: string | null;
   highlightLine: string | null;
+  // How the boards render the stations `highlightLine` excludes: faded (as the
+  // map dims them) or removed entirely. Map-only state would not need this —
+  // the map always fades. View-only and never persisted, like `view`.
+  boardLineFilter: LineFilterMode;
   // Transient map focus: the station the pointer is hovering in the detail
   // panel's "Depends on" / "Unblocks next" lists, highlighted on the map so the
   // dependency is easy to locate. View-only (never persisted), like highlightLine.
@@ -58,6 +63,7 @@ export type Action =
   | { type: 'DO_ACTION'; id: string; act: 'start' | 'done' | 'reopen' }
   | { type: 'SET_DATA'; data: PersistedState }
   | { type: 'SET_HIGHLIGHT_LINE'; lineId: string | null }
+  | { type: 'SET_BOARD_LINE_FILTER'; mode: LineFilterMode }
   | { type: 'SET_HOVERED_STATION'; id: string | null }
   | { type: 'CREATE_TASK'; data: CreateTaskData }
   | { type: 'UPDATE_TASK'; id: string; data: EditTaskData }
@@ -196,6 +202,11 @@ export function reducer(state: StoreState, action: Action): StoreState {
 
     case 'SET_HIGHLIGHT_LINE':
       return { ...state, highlightLine: action.lineId };
+
+    case 'SET_BOARD_LINE_FILTER':
+      // View-only (like SET_VIEW): how the boards draw the exclusions, not what
+      // is excluded, so it works on read-only mirrors and never autosaves.
+      return { ...state, boardLineFilter: action.mode };
 
     case 'SET_HOVERED_STATION':
       return { ...state, hoveredStationId: action.id };

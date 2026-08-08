@@ -108,6 +108,9 @@ function LoadedStore({
     view: 'map',
     selectedId: null,
     highlightLine: null,
+    // Fade by default so a board filters the way the map does; Hide is one
+    // click away in the board's filter bar. ADR 0010.
+    boardLineFilter: 'fade',
     hoveredStationId: null,
     theme: 'light',
     // Per-viewer rotation, restored from localStorage so it survives reloads and
