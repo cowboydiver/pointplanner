@@ -19,6 +19,8 @@ npx vitest --reporter=verbose            # verbose test output
 
 The same graph can be read four ways, chosen by `state.view` and the topbar's `ViewSwitcher` — `map` (the transit map) plus three boards in `src/components/board/`: **Queue** (ranked list), **Board** (weighted status columns) and **Departures** (departure rail over line swimlanes). The boards render only; every fact they show comes from `src/lib/board.ts` and every mutation goes through the existing `OPEN_DETAIL` / `DO_ACTION`. See ADR 0009.
 
+Selecting a line in the legend (`state.highlightLine`) filters all four views. The map fades what the line does not serve; the boards do too by default, or hide it outright — `state.boardLineFilter`, toggled from the boards' filter bar. See ADR 0010.
+
 ### Data flow
 
 ```
@@ -40,7 +42,7 @@ seed data (src/data/seed.ts)
 | `bundling.ts` | `offsetCollinearLegs` — render-time nudging of residual collinear cross-line runs into parallel lanes (trunk-fixed — ADR 0007) |
 | `clearance.ts` | `clearPassedStations` — render-time stepping of an edge around any marker its line does not serve, so a line never reads as a false stop (ADR 0008). Runs after bundling |
 | `bounds.ts` | `computeBounds` → SVG viewBox accounting for label padding |
-| `board.ts` | `buildBoardModel` — groups stations by status and annotates each with `dependents` / `downstream` / `waitingOn`; ranks `available` work by downstream depth. Backs all three board views (ADR 0009) |
+| `board.ts` | `buildBoardModel` — groups stations by status and annotates each with `dependents` / `downstream` / `waitingOn`; ranks `available` work by downstream depth. Backs all three board views (ADR 0009). `applyLineFilter` then narrows the model to the legend's selected line, either fading the rest (`dim`) or dropping them and re-counting around the survivors (ADR 0010) |
 | `layout.ts` | `layoutStations` (deterministic topological columns + root-column pull + iterated barycentre crossing-reduction + strand packing + compaction — ADR 0006) and `relayoutStations` — re-derives every station's position from the graph. Used by generated maps and by every interactive structural edit / Auto-arrange (ADR 0005) |
 | `placement.ts` | `slugify` — generates a unique station id from a task name |
 

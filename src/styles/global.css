@@ -597,8 +597,53 @@ body[data-theme="dark"] .view-seg.on { background: #f1f0ea; color: #14161c; }
 /* ===== boards (shared) =====
    Three readings of the same graph — ADR 0009. They share only the station
    marker and the line badge; each board owns its own layout entirely. */
-.board { height: 100%; overflow-y: auto; background: var(--paper); color: var(--ink); }
+/* The shell stacks the shared line-filter bar above whichever board is on
+   screen; the board itself takes the rest of the height and scrolls. */
+.board-shell { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+.board { flex: 1 1 auto; min-height: 0; overflow-y: auto; background: var(--paper); color: var(--ink); }
 .board-empty { font-size: 13.5px; color: var(--ink-faint); font-style: italic; margin: 0; padding: 16px 2px; }
+
+/* ===== board line filter (ADR 0010) ===== */
+.filter-bar {
+  flex: 0 0 auto; display: flex; align-items: center; gap: 10px;
+  padding: 9px 18px; background: var(--paper);
+  border-bottom: 1px solid var(--hair);
+  font-size: 12.5px;
+}
+.filter-swatch { width: 10px; height: 10px; border-radius: 50%; background: var(--lc); }
+.filter-line { font-weight: 700; color: var(--ink); }
+.filter-count { color: var(--ink-faint); }
+.filter-modes {
+  margin-left: auto; display: inline-flex; align-items: center; gap: 2px;
+  background: var(--panel); border: 1px solid var(--hair);
+  border-radius: 999px; padding: 2px;
+}
+.filter-seg {
+  border: none; background: none; font: inherit;
+  font-weight: 600; font-size: 11.5px; color: var(--ink-soft);
+  padding: 3px 11px; border-radius: 999px; cursor: pointer;
+  transition: background .15s, color .15s;
+}
+.filter-seg:hover { color: var(--ink); }
+.filter-seg.on { background: var(--ink); color: var(--paper); }
+.filter-clear {
+  border: none; background: none; font: inherit;
+  font-size: 11.5px; font-weight: 600; color: var(--ink-soft);
+  cursor: pointer; padding: 3px 2px;
+}
+.filter-clear:hover { color: var(--ink); text-decoration: underline; }
+body[data-theme="dark"] .filter-seg.on { background: #f1f0ea; color: #14161c; }
+
+/* A station the filter excludes, in `fade` mode. Far less aggressive than the
+   map's .station.dim (.12): a board is text, and text at .12 is unreadable
+   rather than merely receded. Hovering restores it so a faded row stays usable.
+   The nested rule stops a dim stop inside a dim lane from compounding to ~.1. */
+.board .dim { opacity: .34; transition: opacity .15s; }
+.board .dim:hover { opacity: .8; }
+.board .dim .dim { opacity: 1; }
+/* The ready pulse is the map's "pick me up" signal — it should not keep
+   advertising a station the filter has pushed to the background. */
+.board .dim .st-dot-halo { animation: none; opacity: 0; }
 
 /* The map's station marker, re-cut in HTML. Reuses the map's own st-* state
    classes and its pulse-ready / ping keyframes so `available` pulses alike in

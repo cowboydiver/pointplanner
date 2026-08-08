@@ -1,6 +1,6 @@
 import type { CSSProperties } from 'react';
 import { stopsOnLine, waitingLabel, type BoardStation } from '../../lib/board';
-import { useBoardActions, useBoardModel } from './useBoard';
+import { useBoardActions, useBoardModel, useLineFilter } from './useBoard';
 import { LineBadge, StatusDot } from './stationBits';
 
 /**
@@ -14,6 +14,7 @@ import { LineBadge, StatusDot } from './stationBits';
 export function DeparturesBoard() {
   const model = useBoardModel();
   const { readOnly, select, start, complete } = useBoardActions();
+  const { lineId } = useLineFilter();
 
   return (
     <div className="board board-dep">
@@ -25,7 +26,11 @@ export function DeparturesBoard() {
           </span>
         </div>
         {model.available.length === 0 && model.active.length === 0 && (
-          <p className="dep-rail-empty">— no departures — every line is waiting —</p>
+          <p className="dep-rail-empty">
+            {/* A `hide` filter leaves one lane on the board, so "every line" would
+                overstate what the reader is looking at. */}
+            — no departures — {model.lines.length === 1 ? 'this line is' : 'every line is'} waiting —
+          </p>
         )}
         <ul className="dep-list">
           {model.available.map(entry => (
@@ -54,8 +59,17 @@ export function DeparturesBoard() {
         {model.lines.map(line => {
           const stops = stopsOnLine(model, line.id);
           const readyHere = stops.filter(s => s.station.status === 'available').length;
+          // A whole lane fades when the filter excludes its line — its own stops
+          // are already dim, but the head and rail have to follow or the lane
+          // reads as still selected. In `hide` mode only the filtered lane is
+          // in `model.lines` at all.
+          const laneDim = lineId !== null && line.id !== lineId;
           return (
-            <div key={line.id} className="lane" style={{ '--lc': line.color } as CSSProperties}>
+            <div
+              key={line.id}
+              className={`lane${laneDim ? ' dim' : ''}`}
+              style={{ '--lc': line.color } as CSSProperties}
+            >
               <div className="lane-head">
                 <LineBadge line={line} />
                 <span className="lane-name">{line.name}</span>
@@ -97,7 +111,10 @@ function DepartureRow({
   onSelect: () => void;
 }) {
   return (
-    <li className={`dep-row${running ? ' dep-row-running' : ''}`} onClick={onSelect}>
+    <li
+      className={`dep-row${running ? ' dep-row-running' : ''}${entry.dim ? ' dim' : ''}`}
+      onClick={onSelect}
+    >
       <LineBadge line={entry.line} />
       <span className="dep-name">{entry.station.name}</span>
       <span className="dep-owner">{entry.station.owner}</span>
@@ -129,10 +146,11 @@ function Stop({
 }) {
   const { station } = entry;
   const color = entry.line?.color ?? 'var(--locked)';
+  const dim = entry.dim ? ' dim' : '';
 
   if (station.status === 'available') {
     return (
-      <div className="stop stop-ready" onClick={onSelect}>
+      <div className={`stop stop-ready${dim}`} onClick={onSelect}>
         <StatusDot status="available" color={color} size={18} />
         <div className="stop-name">{station.name}</div>
         <div className="stop-meta">
@@ -153,7 +171,7 @@ function Stop({
 
   if (station.status === 'active') {
     return (
-      <div className="stop stop-active" onClick={onSelect}>
+      <div className={`stop stop-active${dim}`} onClick={onSelect}>
         <StatusDot status="active" color={color} size={14} />
         <div className="stop-name">{station.name}</div>
         <div className="stop-meta">in progress</div>
@@ -167,7 +185,7 @@ function Stop({
       : `${station.name} — waiting on ${entry.waitingOn.map(s => s.name).join(', ')}`;
 
   return (
-    <div className={`stop stop-tick stop-${station.status}`} title={hint} onClick={onSelect}>
+    <div className={`stop stop-tick stop-${station.status}${dim}`} title={hint} onClick={onSelect}>
       <StatusDot status={station.status} color={color} size={11} />
       <span className="stop-tick-name">{station.name}</span>
     </div>

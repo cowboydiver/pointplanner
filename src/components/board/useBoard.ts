@@ -1,14 +1,41 @@
 import { useMemo } from 'react';
 import { useStore } from '../../store/projectStore';
-import { buildBoardModel, type BoardModel } from '../../lib/board';
+import { applyLineFilter, buildBoardModel, type BoardModel, type LineFilterMode } from '../../lib/board';
 
-/** The board model for the active map, rebuilt only when the graph changes. */
+/**
+ * The board model for the active map, narrowed to the legend's selected line.
+ * Every board reads the model through here, so selecting a line in the legend
+ * filters all three the same way it filters the map — see ADR 0010.
+ */
 export function useBoardModel(): BoardModel {
   const { state, indexes } = useStore();
   return useMemo(
-    () => buildBoardModel(state.stations, state.lines, indexes),
-    [state.stations, state.lines, indexes],
+    () => applyLineFilter(
+      buildBoardModel(state.stations, state.lines, indexes),
+      state.highlightLine,
+      state.boardLineFilter,
+    ),
+    [state.stations, state.lines, indexes, state.highlightLine, state.boardLineFilter],
   );
+}
+
+export interface LineFilter {
+  /** The line every board is narrowed to, or null when showing the whole map. */
+  lineId: string | null;
+  mode: LineFilterMode;
+  setMode: (mode: LineFilterMode) => void;
+  clear: () => void;
+}
+
+/** The active line filter, for the chrome that displays and changes it. */
+export function useLineFilter(): LineFilter {
+  const { state, dispatch } = useStore();
+  return {
+    lineId: state.highlightLine,
+    mode: state.boardLineFilter,
+    setMode: mode => dispatch({ type: 'SET_BOARD_LINE_FILTER', mode }),
+    clear: () => dispatch({ type: 'SET_HIGHLIGHT_LINE', lineId: null }),
+  };
 }
 
 export interface BoardActions {

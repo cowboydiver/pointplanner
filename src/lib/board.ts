@@ -16,6 +16,12 @@ export interface BoardStation {
   waitingOn: Station[];
   /** Primary line (`station.lines[0]`), which carries the accent colour — ADR 0005. */
   line: Line | undefined;
+  /**
+   * True when a line filter is on and this station does not serve that line —
+   * the board's equivalent of the map's `.station.dim`. Always false when no
+   * filter is on, and always false in `hide` mode (those entries are gone).
+   */
+  dim: boolean;
 }
 
 /** Stations grouped by status, each group ordered for reading. */
@@ -59,6 +65,7 @@ export function buildBoardModel(
       .map(id => stationById[id])
       .filter((s): s is Station => s !== undefined && s.status !== 'done'),
     line: lineById[station.lines[0]],
+    dim: false,
   }));
 
   const byId: Record<string, BoardStation> = {};
@@ -77,6 +84,69 @@ export function buildBoardModel(
     lines,
     total: entries.length,
   };
+}
+
+/**
+ * How a board renders the stations a line filter excludes.
+ *
+ * - `fade` — keep them, faded, exactly as the map dims off-line stations. The
+ *   filtered line is read in the context of everything around it.
+ * - `hide` — drop them entirely, so counts, ranks and lanes describe the line
+ *   alone. A board is a list, not a picture, so unlike the map it can honestly
+ *   re-count itself around a subset.
+ */
+export type LineFilterMode = 'fade' | 'hide';
+
+/** Whether a station serves the filtered line. Interchanges serve several. */
+function servesLine(entry: BoardStation, lineId: string): boolean {
+  return entry.station.lines.includes(lineId);
+}
+
+/**
+ * Narrow a board to one line, the same selection the map's legend makes — a
+ * filter is a way of looking at the graph, so it is applied to the finished
+ * model rather than threaded through `buildBoardModel`.
+ *
+ * `fade` preserves every group, ordering and count and only marks the excluded
+ * entries `dim`. `hide` removes them, which re-counts the model around the
+ * survivors: `total` and every group length describe the line alone, and
+ * `lines` collapses to the filtered line so per-line layouts show one lane.
+ * Ranking is unaffected either way — `byDownstreamFirst` already ordered the
+ * groups, and dropping entries preserves the order of those that remain.
+ */
+export function applyLineFilter(
+  model: BoardModel,
+  lineId: string | null,
+  mode: LineFilterMode,
+): BoardModel {
+  if (lineId === null) return model;
+
+  const rewrite = mode === 'hide'
+    ? (group: BoardStation[]) => group.filter(e => servesLine(e, lineId))
+    : (group: BoardStation[]) =>
+        group.map(e => (servesLine(e, lineId) ? e : { ...e, dim: true }));
+
+  const byId: Record<string, BoardStation> = {};
+  rewrite(Object.values(model.byId)).forEach(e => { byId[e.station.id] = e; });
+
+  return {
+    available: rewrite(model.available),
+    active: rewrite(model.active),
+    locked: rewrite(model.locked),
+    done: rewrite(model.done),
+    byId,
+    lines: mode === 'hide' ? model.lines.filter(l => l.id === lineId) : model.lines,
+    total: mode === 'hide' ? Object.keys(byId).length : model.total,
+  };
+}
+
+/**
+ * How many of these stations a line serves. Counted from the raw stations, not
+ * a model, because the filter bar has to report the same "N of M" in both modes
+ * and a `hide`-filtered model no longer knows what it dropped.
+ */
+export function countOnLine(stations: Station[], lineId: string): number {
+  return stations.filter(s => s.lines.includes(lineId)).length;
 }
 
 /**
